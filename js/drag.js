@@ -277,19 +277,22 @@ RL.Drag = (function () {
         h += '<p class="small">' + def.name + ' · accel ' + st.accel + ' · top ' + st.topSpeed + ' · grip ' + st.grip + ' · nitro ' + st.nitro + '</p>';
         h += '<p class="small">Perfect-launch window ' + RL.DragSim.SWEET[0] + '–' + RL.DragSim.SWEET[1] + ' rpm. Estimated perfect ET <b class="hl">' + (est.et ? est.et.toFixed(2) + 's' : '--') + '</b> · trap ' + est.trap + ' km/h · ' + (p.half ? '1/2 mile' : '1/4 mile') + '</p>';
         h += '<div class="row">';
-        h += '<button data-act="dist" data-arg="0" class="' + (p.half ? '' : 'primary') + '">1/4 mile</button>';
-        h += '<button data-act="dist" data-arg="1" class="' + (p.half ? 'primary' : '') + '">1/2 mile</button>';
+        h += '<button data-act="dist" data-arg="0" class="' + (p.half ? '' : 'on') + '">1/4 mile</button>';
+        h += '<button data-act="dist" data-arg="1" class="' + (p.half ? 'on' : '') + '">1/2 mile</button>';
         h += '<button data-act="stake">' + (p.stake ? 'Stake on' : 'Stake off') + '</button>';
         h += '<button data-act="pink">' + (p.pink ? 'Pink slip on' : 'Pink slip off') + '</button>';
         h += '<button data-act="gears">Gear ratios</button></div>';
-        h += '<p class="small">A stake is deducted when you stage and paid double if you win. Quitting keeps the stake and voids the pink slip. A pink slip adds that rival\'s car once, and only if you still have another car to drive. It never copies a car you already own.</p>';
+        h += '<p class="small">A stake is deducted when you stage and paid double if you win. Quitting keeps the stake and voids the pink slip. A pink slip adds that rival\'s car once, and only if you still have another car to drive. It never copies a car you already own. Enter stages the first open race. The distance buttons only change the length.</p>';
+        let staged = false;
         h += EVENTS.map((e) => {
           const locked = s.league < e.league;
           const buy = p.stake ? RL.DragRules.stakeFor(e.league) : 0;
           const pinkOk = p.pink && RL.DragRules.canPink(s, e.id);
           const afford = s.money >= buy;
+          const primary = !locked && afford && !staged;
+          if (primary) staged = true;
           return '<div class="card"><div><b>' + e.name + '</b><div class="small">vs ' + e.opp + ' · tier ' + e.league + (buy ? ' · stake ' + RL.fmtMoney(buy) : ' · exhibition') + (pinkOk ? ' · pink ' + (RL.DragRules.prizeFor(e.id)) : '') + '</div></div><div class="btns">' +
-            (locked ? '<span class="dim">🔒 League ' + e.league + '</span>' : '<button data-act="go" data-arg="' + e.id + '"' + (afford ? '' : ' disabled') + '>Stage</button>') + '</div></div>';
+            (locked ? '<span class="dim">🔒 League ' + e.league + '</span>' : '<button data-act="go" data-arg="' + e.id + '" class="' + (primary ? 'primary' : '') + '"' + (afford ? '' : ' disabled') + '>Stage</button>') + '</div></div>';
         }).join('');
         return h;
       },
@@ -313,13 +316,33 @@ RL.Drag = (function () {
     });
     if (!begun.ok) {
       RL.UI.toast(begun.reason === 'broke' ? 'Not enough cash for that stake' : 'Finish the open bet first', '#ff8a2e');
-      return;
+      return false;
     }
     RL.Game.save();
     RL.Game.startRace({
       kind: 'drag', league: e.league, title: e.name, dragId: e.id, opp: e.opp, color: e.color,
       skill: e.skill, half: !!p.half, stake: begun.amount, pink: begun.pink
     });
+    return true;
+  }
+  function affordableEvent() {
+    const s = RL.Game.state;
+    if (!s) return null;
+    const p = prefs();
+    for (let i = 0; i < EVENTS.length; i++) {
+      const e = EVENTS[i];
+      if (s.league < e.league) continue;
+      const buy = p.stake ? RL.DragRules.stakeFor(e.league) : 0;
+      if (s.money >= buy) return e;
+    }
+    return null;
+  }
+  function quickStage() {
+    const e = affordableEvent();
+    if (!e) { showMenu(); return false; }
+    const ok = stage(e.id);
+    if (!ok) showMenu();
+    return !!ok;
   }
   function showGears() {
     const car = RL.Game.currentCar();
@@ -871,7 +894,7 @@ RL.Drag = (function () {
     ctx.fillText('NITRO', 230, H - 35);
   }
   return {
-    start, update, draw, stop, forceFinish, showMenu, showGears,
+    start, update, draw, stop, forceFinish, showMenu, showGears, quickStage,
     get state() { return S; }, EVENTS
   };
 })();

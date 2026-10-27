@@ -125,7 +125,7 @@ export const ui = {
   queueStory(k) { pendingStory = k; },
   showResults, showPause, showMenu, showGarage, showOffice, showShop, showBar, showTraining,
   showInventory, showSkills, showQuests, showAchievements, showSettings, showHelp,
-  showHQ, showJobs, showCustom, showHospital, showGas, showPlace
+  showHQ, showJobs, showCustom, showHospital, showGas, showPlace, open
 };
 
 function open(view) { stack.push(view); render(true); }
@@ -261,18 +261,18 @@ function showMenu() {
 function showHelp() {
   const clock = (n) => formatCooldown(hideSeconds(n));
   open({ title: 'How to Play', cls: 'help-panel', render: () => '<ul class="help">' +
-    '<li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building\'s lot and press <kbd>E</kbd>. The avenue itself is not a door. Downtown has the garage, race office, shop, dealership, and the bar hideout. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway meetup is east.</li>' +
+    '<li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building\'s lot and press <kbd>E</kbd> to walk inside. The avenue itself is not a door. Talk to the person at the counter. The south door leaves. Downtown has the garage, race office, shop, dealership, and the bar. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway building is east. The tower outside it is the same room.</li>' +
     '<li><b>Heat:</b> stars do not stop at five. The board shows up to five star icons, then a count such as ★ x12. A nudge or a cone barely counts. Red lights, wrecks, smashed props, and holding a high speed do count. Stars do not fall while the police can see you. Break line of sight and stay hidden. The HUD shows a white cooldown: ' +
     clock(1) + ' at one star, ' + clock(5) + ' at five, and ' + clock(8) + ' at eight. Past five, every extra star waits longer. Spotting you resets that clock. When it hits zero, one star drops. Kingpin trims the wait a little. Each new star adds bounty, and a higher star adds more. Running someone over, ramming a car, or wrecking one adds bounty too. Losing the police pays nothing and does not wipe it. The bounty stays until you are busted. In a city server, a cop can bust you and claim it. Cruisers start off screen, on a road, and drive to you. A stuck cruiser reverses. It does not pop in beside you. Past five stars the squad stays small enough to dodge.</li>' +
-    '<li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> or <kbd>C</kbd> to steal it. The STEAL button does the same. Tiers have different speed and health. Circuit races and the drag strip always use the car you own. At a shop door, <kbd>C</kbd> robs the till instead.</li>' +
+    '<li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> or <kbd>C</kbd> to steal it. The STEAL button does the same. Tiers have different speed and health. Circuit races and the drag strip always use the car you own. At a shop door, or at the counter inside, <kbd>C</kbd> robs the till instead.</li>' +
     '<li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. If a cop picks up a wanted star, they become Neutral immediately and cannot change roles for 5 minutes. The timer shows on screen and is stored in the save. Each role has its own rank. A criminal is a known face: shops, repairs, fuel, and the hospital cost 12% more, sales pay less, and heat falls slower. Kingpin waives that street tax.</li>' +
     '<li><b>On sight:</b> with no wanted stars, an officer outside the police station still shoots a criminal in view. The shot flashes, then fires at the spot you were standing. Move more than a step, take the far lane, break the line with a building, or pull into the station lot. The lot is a ceasefire so you can still change roles. The shot spends health. It does not add a star. Driving off refills that health.</li>' +
-    '<li><b>Shops:</b> Walk into the lot of the parts shop, Quick Mart, the dealership, or Nitro Fuel. On foot, walk up to the same lot. <kbd>E</kbd> opens the counter. <kbd>C</kbd> or Rob the register takes the cash. Away from a till, <kbd>C</kbd> still steals a car. Wanted stars go up, and the bounty under them goes up with the heat. The till stays empty for about a minute. <kbd>Q</kbd> gets you back in the car.</li>' +
+    '<li><b>Shops:</b> Walk into the parts shop, Quick Mart, the dealership, or Nitro Fuel. On foot, the lot is the door. Inside, walk up to the counter. <kbd>E</kbd> talks to the clerk. <kbd>C</kbd> at that counter, or at the door, takes the cash. Rob the register does the same. Away from a till, <kbd>C</kbd> still steals a car. Wanted stars go up, and the bounty under them goes up with the heat. The till stays empty for about a minute. <kbd>Q</kbd> gets you back in the car.</li>' +
     '<li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li>' +
     '<li><b>Camera:</b> <kbd>V</kbd>, the Cam button, or the touch CAM button cycles chase, cockpit, a front camera (the road ahead stays in the corner), and top-down. A label such as Camera: Chase [V] shows the one you just picked. Top-down follows you from above and stays above the roofs. Settings chooses north-up or car-up. Left and right steer the car, including on foot and on the touch pad. The front camera looks back at you, so the car can move the other way on the screen. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li>' +
     '<li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260, or a bit more if you are a known criminal. Blowing up during a chase counts as a bust.</li>' +
     '<li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li>' +
-    '<li><b>Drag:</b> hold brake + gas to stage, release brake on green, then shift with Space or Shift. Perfect shifts are a real bonus.</li>' +
+    '<li><b>Drag:</b> walk into the drag building or the tower and talk to the starter. Stage a drag puts you on the tree. Hold brake + gas, release the brake on green, then shift with Space or Shift. You can also stage from the strip apron. Perfect shifts are a real bonus.</li>' +
     '<li><b>Custom:</b> the Race Office opens a custom grid and the track editor. Export a share code to pass a layout around.</li>' +
     '<li><b>Streets:</b> parked rivals with a gold glow will race you point to point. Police players can intercept them instead.</li>' +
     '<li>Top 3 in all three league races unlocks the boss. Beat the boss to get promoted.</li>' +
@@ -393,13 +393,18 @@ function showHospital() {
     ui.back();
   } } });
 }
-function showGas() {
-  open({ title: 'Nitro Fuel', render: () => {
+function showGas(place) {
+  const id = isShop(place) ? place : 'gas';
+  const title = id === 'diner' ? 'Mile Diner' : 'Nitro Fuel';
+  open({ title: title, render: () => {
     const car = career.currentCar();
     const cost = career.bill(120);
-    return robCard('gas') + '<p class="rob-line">High-test and a hose. Patch 15% damage for $' + cost + '.</p><p class="rob-line">Damage ' + Math.round(car.damage) + '%</p><div class="row"><button class="primary" data-act="fix"' + (career.state.money < cost || car.damage < 1 ? ' disabled' : '') + '>Patch</button></div>';
+    const blurb = id === 'diner'
+      ? 'Coffee and a wrench. Patch 15% damage for $' + cost + '.'
+      : 'High-test and a hose. Patch 15% damage for $' + cost + '.';
+    return robCard(id) + '<p class="rob-line">' + blurb + '</p><p class="rob-line">Damage ' + Math.round(car.damage) + '%</p><div class="row"><button class="primary" data-act="fix"' + (career.state.money < cost || car.damage < 1 ? ' disabled' : '') + '>Patch</button></div>';
   }, acts: {
-    robbery: () => finishRob(robShop('gas')),
+    robbery: () => finishRob(robShop(id)),
     fix: () => {
     const car = career.currentCar();
     const cost = career.bill(120);

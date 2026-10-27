@@ -84,6 +84,7 @@ RL.City = (function () {
     if (npc && Math.abs(RL.Hub.player.speed || 0) < 110) { talk(npc); return true; }
     const mk = nearestMark();
     if (mk && Math.abs(RL.Hub.player.speed || 0) < 80) {
+      if (mk.id === 'tower' && RL.Interior && RL.Interior.enter('dragway')) return true;
       RL.UI.open({ title: mk.name, render: () => '<p>' + mk.text + '</p><div class="row"><button data-act="back">Close</button></div>', acts: {} });
       return true;
     }

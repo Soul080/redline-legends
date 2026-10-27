@@ -11,7 +11,11 @@ export const SHOPS = {
   shop: { name: 'Shop', pay: 280, heat: 14 },
   mart: { name: 'Quick Mart', pay: 460, heat: 16 },
   dealer: { name: 'Dealership', pay: 820, heat: 18 },
-  gas: { name: 'Nitro Fuel', pay: 180, heat: 14 }
+  chandler: { name: 'Parts', pay: 340, heat: 15 },
+  scrap: { name: 'Scrap', pay: 200, heat: 14 },
+  customs: { name: 'Customs', pay: 500, heat: 17 },
+  gas: { name: 'Nitro Fuel', pay: 180, heat: 14 },
+  diner: { name: 'Mile Diner', pay: 150, heat: 14 }
 };
 
 export function isShop(id) { return !!SHOPS[id]; }

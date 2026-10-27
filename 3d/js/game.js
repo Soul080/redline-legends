@@ -9,7 +9,7 @@ import { audio } from './audio.js';
 import { input } from './input.js';
 import { gfx } from './renderer.js';
 import { createFx } from './particles.js';
-import { buildCity } from './city.js';
+import { buildCity, lotAt } from './city.js';
 import { applyRoadWeather } from './track.js';
 import { hub } from './hub.js';
 import { race } from './race.js';
@@ -24,6 +24,7 @@ import { roles, rankName } from './roles.js';
 import { editor } from './editor.js';
 import { get as getTrack } from './tracks.js';
 import { wrecks } from './wrecks.js';
+import { interior } from './interior.js';
 
 const $ = (id) => document.getElementById(id);
 const STEP = 1 / 60;
@@ -60,7 +61,42 @@ export const game = {
     }
     this._bindActions();
     hub.onPoi = (id) => this._poi(id);
-    hub.onMark = (mark) => ui.showPlace(mark.name, mark.blurb || mark.text || '');
+    hub.onMark = (mark) => {
+      if (mark && mark.id === 'tower') {
+        audio.play('confirm');
+        interior.enter('dragway');
+        return;
+      }
+      ui.showPlace(mark.name, mark.blurb || mark.text || '');
+    };
+    const self = this;
+    interior.bind({
+      onEnter() {
+        self._showCity(false);
+        self.mode = 'interior';
+        ui.setMode('hub');
+        ui.closeAll();
+      },
+      onLeave(opts) {
+        self._showCity(true);
+        gfx.camera.up.set(0, 1, 0);
+        hub.doorCd = 0.85;
+        const p = hub.player;
+        if (p && self.city) {
+          const lot = lotAt(self.city, p.x, p.z);
+          if (lot) {
+            p.z = lot.z - lot.hz - 1.7;
+            p.vx = p.vz = 0;
+            p.speed = 0;
+          }
+        }
+        if (!(opts && opts.silent) && self.mode === 'interior') {
+          self.mode = 'hub';
+          ui.setMode('hub');
+        }
+      },
+      run(service, id) { self._interiorService(service, id); }
+    });
     actions.playerHp = () => (hub.player && hub.player.hp != null ? hub.player.hp : 100);
     actions.healPlayer = () => { if (hub.player) hub.player.hp = 100; };
     actions.syncDamage = () => {
@@ -190,6 +226,7 @@ export const game = {
       cfg.customDef = getTrack(cfg.customId);
       if (!cfg.customDef) { ui.toast('That custom track is missing.'); return; }
     }
+    if (interior.active) interior.leave({ silent: true });
     ui.closeAll();
     if (editor.active) editor.leave();
     this.lastCfg = Object.assign({}, cfg);
@@ -219,6 +256,7 @@ export const game = {
   },
 
   startDrag() {
+    if (interior.active) interior.leave({ silent: true });
     ui.closeAll();
     const strip = this.city.strip;
     this._hideFreeRoam();
@@ -248,6 +286,7 @@ export const game = {
   },
 
   toHub() {
+    if (interior.active) interior.leave({ silent: true });
     race.stop();
     drag.stop();
     if (photo.active) photo.exit();
@@ -272,6 +311,7 @@ export const game = {
   },
 
   _leavePlay() {
+    if (interior.active) interior.leave({ silent: true });
     race.stop();
     drag.stop();
     if (photo.active) photo.exit();
@@ -327,16 +367,62 @@ export const game = {
 
   _poi(id) {
     audio.play('confirm');
+    const key = id === 'police' ? 'hq' : id === 'drag' ? 'dragway' : id;
+    if (interior.enter(key)) return;
+    ui.toast('The door is locked.');
+  },
+
+  _interiorService(service, id) {
+    ui.closeAll();
+    const role = career.state && career.state.role;
+    const place = (name, text) => ui.showPlace(name, text);
+    const shopPlace = (fallback) => (id && id !== fallback ? id : fallback);
     const map = {
-      garage: ui.showGarage, office: ui.showOffice, shop: () => ui.showShop('parts', 'shop'),
-      dealer: () => ui.showShop('cars', 'dealer'), mart: () => ui.showShop('parts', 'mart'),
-      bar: ui.showBar, training: ui.showTraining, police: ui.showHQ, hq: ui.showHQ,
-      jobs: ui.showJobs, hospital: ui.showHospital, gas: ui.showGas,
-      drag: () => this.startDrag(), vista: () => this.togglePhoto(),
-      bank: () => roles.startHeist('bank')
+      garage: () => ui.showGarage(),
+      office: () => ui.showOffice(),
+      shop: () => ui.showShop('parts', shopPlace('shop')),
+      chandler: () => ui.showShop('parts', 'chandler'),
+      cars: () => ui.showShop('cars', shopPlace('dealer')),
+      dealer: () => ui.showShop('cars', 'dealer'),
+      sell: () => ui.showShop('sell', shopPlace('scrap')),
+      scrap: () => ui.showShop('sell', 'scrap'),
+      bar: () => { if (role === 'criminal') { interior.leave(); ui.showJobs(); } else ui.showBar(); },
+      training: () => ui.showTraining(),
+      hq: () => ui.showHQ(),
+      police: () => ui.showHQ(),
+      precinct: () => ui.showHQ(),
+      customs: () => ui.showGarage('look'),
+      gears: () => ui.showGarage('tune'),
+      drag: () => { interior.leave({ silent: true }); this.startDrag(); },
+      booth: () => { interior.leave({ silent: true }); this.startDrag(); },
+      street: () => { interior.leave(); ui.toast('Gold cars on the street will race you.', '#ff2ef0'); },
+      meetup: () => { interior.leave(); ui.toast('Gold cars on the avenue will race you.', '#ff2ef0'); },
+      club: () => { interior.leave(); ui.toast('Gold cars on the avenue will race you.', '#ff2ef0'); },
+      pitmeet: () => { interior.leave(); ui.toast('Gold cars on the avenue will race you.', '#ff2ef0'); },
+      vista: () => { interior.leave(); this.togglePhoto(); },
+      hospital: () => ui.showHospital(),
+      clinic: () => ui.showHospital(),
+      gas: () => ui.showGas(id === 'diner' ? 'diner' : 'gas'),
+      diner: () => ui.showGas('diner'),
+      jobs: () => ui.showJobs(),
+      warehouse: () => {
+        if (role === 'criminal') { interior.leave(); ui.showJobs(); }
+        else place('Harbor Co.', 'Criminals load the containers after midnight.');
+      },
+      bank: () => {
+        if (role === 'criminal') { interior.leave(); roles.startHeist('bank'); }
+        else place('Neon Bank', 'The vault stays shut unless you are criminal.');
+      },
+      mart: () => ui.showShop('parts', 'mart'),
+      chop: () => { interior.leave(); ui.showJobs(); },
+      safehouse: () => { interior.leave(); ui.showJobs(); },
+      impound: () => place('Impound', 'Pay the release on the garage lot. The gate out front still has the fee.'),
+      lockup: () => place('Old Lockup', 'A quiet stash. The city pretends it is a storage unit.'),
+      hall: () => place('City Hall', 'Districts are named on the map. Every door in this city opens onto a room.')
     };
-    const fn = map[id];
+    const fn = map[service] || map[id];
     if (fn) fn();
+    else place(id || 'Counter', 'The counter is staffed.');
   },
 
   togglePhoto() {
@@ -421,7 +507,7 @@ export const game = {
       if (this.mode === 'race' || this.mode === 'drag') {
         race.paused = true; drag.paused = true; ui.showPause(); return;
       }
-      if (this.mode === 'hub' || this.mode === 'street') { ui.showMenu(); return; }
+      if (this.mode === 'hub' || this.mode === 'street' || this.mode === 'interior') { ui.showMenu(); return; }
     }
     if (input.hit('photo') && this.mode !== 'title') { this.togglePhoto(); return; }
 
@@ -445,6 +531,8 @@ export const game = {
       race.update(dt, input, null);
     } else if (this.mode === 'editor') {
       editor.update(dt, input);
+    } else if (this.mode === 'interior') {
+      interior.update(dt, input);
     } else if (this.mode === 'drag') {
       if (input.hit('drift') || input.hit('nitro')) {
         const kind = drag.shift();
@@ -505,6 +593,7 @@ export const game = {
     }     else if (this.mode === 'race') race.present(dt);
     else if (this.mode === 'drag') drag.present(dt);
     else if (this.mode === 'editor') editor.present();
+    else if (this.mode === 'interior') interior.aim();
     else hub.present(dt);
 
     const speed = this._focusCar() ? this._focusCar().speed : 0;
@@ -524,7 +613,7 @@ export const game = {
     if (weather) weather.textContent = (RL.WEATHER[this.weather] || RL.WEATHER.clear).name;
     const prompt = $('prompt');
     if (prompt) {
-      const text = (this.mode === 'hub' || this.mode === 'street') && hub.prompt ? hub.prompt.text : '';
+      const text = this.mode === 'interior' ? (interior.prompt || '') : ((this.mode === 'hub' || this.mode === 'street') && hub.prompt ? hub.prompt.text : '');
       prompt.hidden = !text;
       prompt.textContent = text;
     }

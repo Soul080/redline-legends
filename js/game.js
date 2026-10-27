@@ -105,31 +105,41 @@ RL.Game = {
     const legacyKey = 'redline_legends_3d_save_v1';
     let raw = null;
     try { raw = localStorage.getItem(legacyKey); } catch (e) { return; }
-    if (!raw) return;
+    if (raw == null || raw === '') return;
     let legacy = null;
     try { legacy = JSON.parse(raw); } catch (e) { legacy = null; }
-    const usable = legacy && Array.isArray(legacy.cars) && legacy.cars.length;
-    const main = this.readSlot(RL.SAVE_KEY);
-    if (usable && main.ok) {
-      const s = main.save;
-      if (s.hub3d == null && legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
-        s.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
-      }
-      if (s.joyride == null && legacy.joyride) s.joyride = legacy.joyride;
-      if (s.worldTime == null && legacy.worldTime != null) s.worldTime = legacy.worldTime;
-      legacy.cars.forEach((lc) => {
-        const mc = s.cars.find((c) => c && lc && c.uid === lc.uid);
-        if (mc && !mc.style && lc.style) mc.style = lc.style;
-      });
-      try { localStorage.setItem(RL.SAVE_KEY, JSON.stringify(s)); } catch (e) { /* keep the in-memory career */ }
-    } else if (usable && !main.ok) {
-      if (legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
-        legacy.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
-        legacy.hub = { x: 15.5 * 40, y: 9.5 * 40, h: 0, speed: 0, inCar: true };
-      }
-      try { localStorage.setItem(RL.SAVE_KEY, JSON.stringify(legacy)); } catch (e) { /* ignore */ }
+    const usable = !!(legacy && typeof legacy === 'object' && !Array.isArray(legacy) && Array.isArray(legacy.cars) && legacy.cars.length);
+    if (!usable) {
+      try { localStorage.removeItem(legacyKey); } catch (e) { /* a bad key must not block the next boot */ }
+      return;
     }
-    try { localStorage.removeItem(legacyKey); } catch (e) { /* ignore */ }
+    let wrote = false;
+    try {
+      const main = this.readSlot(RL.SAVE_KEY);
+      if (main.ok) {
+        const s = main.save;
+        if (s.hub3d == null && legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
+          s.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
+        }
+        if (s.joyride == null && legacy.joyride) s.joyride = legacy.joyride;
+        if (s.worldTime == null && legacy.worldTime != null) s.worldTime = legacy.worldTime;
+        legacy.cars.forEach((lc) => {
+          if (!lc || typeof lc !== 'object') return;
+          const mc = s.cars.find((c) => c && c.uid === lc.uid);
+          if (mc && !mc.style && lc.style) mc.style = lc.style;
+        });
+        localStorage.setItem(RL.SAVE_KEY, JSON.stringify(s));
+      } else {
+        if (legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
+          legacy.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
+          legacy.hub = { x: 15.5 * 40, y: 9.5 * 40, h: 0, speed: 0, inCar: true };
+        }
+        localStorage.setItem(RL.SAVE_KEY, JSON.stringify(legacy));
+      }
+      wrote = true;
+    } catch (e) { wrote = false; }
+    if (!wrote) return;
+    try { localStorage.removeItem(legacyKey); } catch (e) { /* the shared slot already has the career */ }
   },
   hasSave() {
     try {

@@ -53,35 +53,47 @@ export const career = {
   },
 
   /* Fold a pre-unification 3D career in once. If the shared career already
-     exists, money, cars, and quests stay put — the old key cannot pay twice. */
+     exists, money, cars, and quests stay put — the old key cannot pay twice.
+     A missing, empty, or corrupt old key is ignored. The old key is removed
+     only after the shared slot is written, or when the old payload cannot be used. */
   adoptLegacy() {
     let raw = null;
     try { raw = localStorage.getItem(LEGACY_3D_KEY); } catch (e) { return; }
-    if (!raw) return;
+    if (raw == null || raw === '') return;
     let legacy = null;
     try { legacy = JSON.parse(raw); } catch (e) { legacy = null; }
-    const usable = legacy && Array.isArray(legacy.cars) && legacy.cars.length;
-    const main = this.readSlot(SAVE_KEY);
-    if (usable && main.ok) {
-      const s = main.save;
-      if (s.hub3d == null && legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
-        s.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
-      }
-      if (s.joyride == null && legacy.joyride) s.joyride = legacy.joyride;
-      if (s.worldTime == null && legacy.worldTime != null) s.worldTime = legacy.worldTime;
-      for (const lc of legacy.cars) {
-        const mc = s.cars.find((c) => c && lc && c.uid === lc.uid);
-        if (mc && !mc.style && lc.style) mc.style = lc.style;
-      }
-      try { localStorage.setItem(SAVE_KEY, JSON.stringify(s)); } catch (e) { /* ignore */ }
-    } else if (usable && !main.ok) {
-      if (legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
-        legacy.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
-        legacy.hub = { x: 15.5 * 40, y: 9.5 * 40, h: 0, speed: 0, inCar: true };
-      }
-      try { localStorage.setItem(SAVE_KEY, JSON.stringify(legacy)); } catch (e) { /* ignore */ }
+    const usable = !!(legacy && typeof legacy === 'object' && !Array.isArray(legacy) && Array.isArray(legacy.cars) && legacy.cars.length);
+    if (!usable) {
+      try { localStorage.removeItem(LEGACY_3D_KEY); } catch (e) { /* a bad key must not block the next boot */ }
+      return;
     }
-    try { localStorage.removeItem(LEGACY_3D_KEY); } catch (e) { /* ignore */ }
+    let wrote = false;
+    try {
+      const main = this.readSlot(SAVE_KEY);
+      if (main.ok) {
+        const s = main.save;
+        if (s.hub3d == null && legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
+          s.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
+        }
+        if (s.joyride == null && legacy.joyride) s.joyride = legacy.joyride;
+        if (s.worldTime == null && legacy.worldTime != null) s.worldTime = legacy.worldTime;
+        for (const lc of legacy.cars) {
+          if (!lc || typeof lc !== 'object') continue;
+          const mc = s.cars.find((c) => c && c.uid === lc.uid);
+          if (mc && !mc.style && lc.style) mc.style = lc.style;
+        }
+        localStorage.setItem(SAVE_KEY, JSON.stringify(s));
+      } else {
+        if (legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
+          legacy.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
+          legacy.hub = { x: 15.5 * 40, y: 9.5 * 40, h: 0, speed: 0, inCar: true };
+        }
+        localStorage.setItem(SAVE_KEY, JSON.stringify(legacy));
+      }
+      wrote = true;
+    } catch (e) { wrote = false; }
+    if (!wrote) return;
+    try { localStorage.removeItem(LEGACY_3D_KEY); } catch (e) { /* the shared slot already has the career */ }
   },
 
   readSlot(key) {
@@ -135,11 +147,26 @@ export const career = {
     if (!s.flags) s.flags = {};
     if (!s.achievements) s.achievements = {};
     if (!s.records) s.records = {};
+    const cars = s.cars.filter((c) => c && typeof c === 'object');
+    if (cars.length) s.cars = cars;
     for (const c of s.cars) {
+      if (!c || typeof c !== 'object') continue;
       if (!c.tune) c.tune = { gear: 0, aero: 0 };
       if (!c.style) c.style = { color: null, rims: 0, decal: 'none', underglow: false };
-      if (!c.parts) c.parts = {};
+      if (!c.parts || typeof c.parts !== 'object' || Array.isArray(c.parts)) c.parts = {};
+      if (!Number.isFinite(Number(c.damage))) c.damage = 0;
     }
+    if (!s.cars.some((c) => c && c.uid === s.currentCar)) s.currentCar = s.cars[0] && s.cars[0].uid;
+    if (!Array.isArray(s.perks)) s.perks = [];
+    if (!Array.isArray(s.inventory)) s.inventory = [];
+    s.inventory = s.inventory.filter((p) => p && typeof p === 'object');
+    if (!s.stats || typeof s.stats !== 'object' || Array.isArray(s.stats)) s.stats = { reflexes: 1, control: 1, nerve: 1, tactics: 1 };
+    if (!Number.isFinite(Number(s.money))) s.money = 0;
+    if (!Number.isFinite(Number(s.xp))) s.xp = 0;
+    if (!Number.isFinite(Number(s.level)) || Number(s.level) < 1) s.level = 1;
+    if (!Number.isFinite(Number(s.skillPoints))) s.skillPoints = 0;
+    if (!Number.isFinite(Number(s.statPoints))) s.statPoints = 0;
+    if (!Number.isFinite(Number(s.respect))) s.respect = 0;
     const joyTiers = { beater: 1, commuter: 1, sport: 1, exotic: 1 };
     const j = s.joyride;
     if (!j || typeof j !== 'object' || Array.isArray(j) || !joyTiers[j.tier]) s.joyride = null;
@@ -251,7 +278,7 @@ export const career = {
     return s.cars.find((c) => c.uid === s.currentCar) || s.cars[0];
   },
   findPart(id) { return this.state.inventory.find((p) => p.uid === id); },
-  hasPerk(id) { return !!(this.state && this.state.perks.includes(id)); },
+  hasPerk(id) { return !!(this.state && Array.isArray(this.state.perks) && this.state.perks.includes(id)); },
 
   makePart(slot, rarity, randomize) {
     const r = RL.RARITIES[rarity];
@@ -434,9 +461,9 @@ export const career = {
     if (t.draft >= 30) this.unlockAch('draft_30');
     if (t.crashes >= 50) this.unlockAch('crash_50');
     if (s.cars.length >= 4) this.unlockAch('cars_4');
-    if (s.inventory.some((p) => p.rarity === 'legendary')) this.unlockAch('legendary');
+    if (Array.isArray(s.inventory) && s.inventory.some((p) => p && p.rarity === 'legendary')) this.unlockAch('legendary');
     if (s.level >= 10) this.unlockAch('level_10');
-    if (s.perks.length >= 5) this.unlockAch('perks_5');
+    if (Array.isArray(s.perks) && s.perks.length >= 5) this.unlockAch('perks_5');
     if (s.money >= 50000) this.unlockAch('rich');
     if (s.league >= 2) this.unlockAch('league_2');
     if (s.league >= 3) this.unlockAch('league_3');

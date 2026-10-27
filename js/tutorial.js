@@ -13,7 +13,7 @@ RL.Tutorial = (function () {
       test: (c) => c.mode === 'race' && (c.nitroOn || c.nitroTime > 0.05) },
     { id: 'map', title: 'Map', text: 'Back in the city, press M or tap the map button. The legend names every district.', target: '#btn-map',
       test: (c) => c.mapOpen },
-    { id: 'building', title: 'A door', text: 'Drive to a marked door, stop, and press E or ACT. The garage, shop, office, bar, and training track all count.', target: '',
+    { id: 'building', title: 'A door', text: 'Drive to a marked door, stop, and press E or ACT. You walk into the room. Talk to the person inside, then leave by the south door. The garage, shop, office, bar, and training track all count.', target: '',
       test: (c) => c.building },
     { id: 'race', title: 'A race', text: 'Start any race. Training Track is the short one. Race Office and Free Play count too.', target: '',
       test: (c) => c.sawRace },
@@ -52,8 +52,8 @@ RL.Tutorial = (function () {
     const race = RL.Race && RL.Race.state;
     const pl = race && race.player;
     const mode = RL.Game ? RL.Game.mode : '';
-    let building = false;
-    if (mode === 'hub' && RL.UI && RL.UI.isOpen() && RL.UI.panelTitle) {
+    let building = mode === 'interior';
+    if (!building && mode === 'hub' && RL.UI && RL.UI.isOpen() && RL.UI.panelTitle) {
       const title = RL.UI.panelTitle();
       building = !!title && !BLOCK.test(title);
     }

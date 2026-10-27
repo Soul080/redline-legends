@@ -1,5 +1,5 @@
 (() => {
-  // js/data.js
+  // 3d/js/data.js
   var RL = {};
   RL.RARITIES = {
     common: { name: "Common", color: "#c9d1d9", mult: 1, price: 1 },
@@ -349,7 +349,7 @@
     { id: "writeoff", name: "Write-Off", desc: "Total a car. The fireball is free. The clock and the tow are not." }
   ]);
 
-  // js/util.js
+  // 3d/js/util.js
   var clamp = (v, a, b) => v < a ? a : v > b ? b : v;
   var lerp = (a, b, t) => a + (b - a) * t;
   var damp = (a, b, lambda, dt) => lerp(a, b, 1 - Math.exp(-lambda * dt));
@@ -401,7 +401,7 @@
     return { x: Math.cos(h), z: -Math.sin(h) };
   }
 
-  // js/state.js
+  // 3d/js/state.js
   var SAVE_KEY = "redline_legends_save_v1";
   var SAVE_BACKUP_KEY = "redline_legends_save_v1_backup";
   var LEGACY_3D_KEY = "redline_legends_3d_save_v1";
@@ -490,7 +490,9 @@
       }
     },
     /* Fold a pre-unification 3D career in once. If the shared career already
-       exists, money, cars, and quests stay put — the old key cannot pay twice. */
+       exists, money, cars, and quests stay put — the old key cannot pay twice.
+       A missing, empty, or corrupt old key is ignored. The old key is removed
+       only after the shared slot is written, or when the old payload cannot be used. */
     adoptLegacy() {
       let raw = null;
       try {
@@ -498,40 +500,49 @@
       } catch (e) {
         return;
       }
-      if (!raw) return;
+      if (raw == null || raw === "") return;
       let legacy = null;
       try {
         legacy = JSON.parse(raw);
       } catch (e) {
         legacy = null;
       }
-      const usable = legacy && Array.isArray(legacy.cars) && legacy.cars.length;
-      const main = this.readSlot(SAVE_KEY);
-      if (usable && main.ok) {
-        const s = main.save;
-        if (s.hub3d == null && legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
-          s.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
-        }
-        if (s.joyride == null && legacy.joyride) s.joyride = legacy.joyride;
-        if (s.worldTime == null && legacy.worldTime != null) s.worldTime = legacy.worldTime;
-        for (const lc of legacy.cars) {
-          const mc = s.cars.find((c) => c && lc && c.uid === lc.uid);
-          if (mc && !mc.style && lc.style) mc.style = lc.style;
-        }
+      const usable = !!(legacy && typeof legacy === "object" && !Array.isArray(legacy) && Array.isArray(legacy.cars) && legacy.cars.length);
+      if (!usable) {
         try {
-          localStorage.setItem(SAVE_KEY, JSON.stringify(s));
+          localStorage.removeItem(LEGACY_3D_KEY);
         } catch (e) {
         }
-      } else if (usable && !main.ok) {
-        if (legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
-          legacy.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
-          legacy.hub = { x: 15.5 * 40, y: 9.5 * 40, h: 0, speed: 0, inCar: true };
-        }
-        try {
-          localStorage.setItem(SAVE_KEY, JSON.stringify(legacy));
-        } catch (e) {
-        }
+        return;
       }
+      let wrote = false;
+      try {
+        const main = this.readSlot(SAVE_KEY);
+        if (main.ok) {
+          const s = main.save;
+          if (s.hub3d == null && legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
+            s.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
+          }
+          if (s.joyride == null && legacy.joyride) s.joyride = legacy.joyride;
+          if (s.worldTime == null && legacy.worldTime != null) s.worldTime = legacy.worldTime;
+          for (const lc of legacy.cars) {
+            if (!lc || typeof lc !== "object") continue;
+            const mc = s.cars.find((c) => c && c.uid === lc.uid);
+            if (mc && !mc.style && lc.style) mc.style = lc.style;
+          }
+          localStorage.setItem(SAVE_KEY, JSON.stringify(s));
+        } else {
+          if (legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
+            legacy.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
+            legacy.hub = { x: 15.5 * 40, y: 9.5 * 40, h: 0, speed: 0, inCar: true };
+          }
+          localStorage.setItem(SAVE_KEY, JSON.stringify(legacy));
+        }
+        wrote = true;
+      } catch (e) {
+        wrote = false;
+      }
+      if (!wrote) return;
       try {
         localStorage.removeItem(LEGACY_3D_KEY);
       } catch (e) {
@@ -597,11 +608,26 @@
       if (!s.flags) s.flags = {};
       if (!s.achievements) s.achievements = {};
       if (!s.records) s.records = {};
+      const cars = s.cars.filter((c) => c && typeof c === "object");
+      if (cars.length) s.cars = cars;
       for (const c of s.cars) {
+        if (!c || typeof c !== "object") continue;
         if (!c.tune) c.tune = { gear: 0, aero: 0 };
         if (!c.style) c.style = { color: null, rims: 0, decal: "none", underglow: false };
-        if (!c.parts) c.parts = {};
+        if (!c.parts || typeof c.parts !== "object" || Array.isArray(c.parts)) c.parts = {};
+        if (!Number.isFinite(Number(c.damage))) c.damage = 0;
       }
+      if (!s.cars.some((c) => c && c.uid === s.currentCar)) s.currentCar = s.cars[0] && s.cars[0].uid;
+      if (!Array.isArray(s.perks)) s.perks = [];
+      if (!Array.isArray(s.inventory)) s.inventory = [];
+      s.inventory = s.inventory.filter((p) => p && typeof p === "object");
+      if (!s.stats || typeof s.stats !== "object" || Array.isArray(s.stats)) s.stats = { reflexes: 1, control: 1, nerve: 1, tactics: 1 };
+      if (!Number.isFinite(Number(s.money))) s.money = 0;
+      if (!Number.isFinite(Number(s.xp))) s.xp = 0;
+      if (!Number.isFinite(Number(s.level)) || Number(s.level) < 1) s.level = 1;
+      if (!Number.isFinite(Number(s.skillPoints))) s.skillPoints = 0;
+      if (!Number.isFinite(Number(s.statPoints))) s.statPoints = 0;
+      if (!Number.isFinite(Number(s.respect))) s.respect = 0;
       const joyTiers = { beater: 1, commuter: 1, sport: 1, exotic: 1 };
       const j = s.joyride;
       if (!j || typeof j !== "object" || Array.isArray(j) || !joyTiers[j.tier]) s.joyride = null;
@@ -715,7 +741,7 @@
       return this.state.inventory.find((p) => p.uid === id);
     },
     hasPerk(id) {
-      return !!(this.state && this.state.perks.includes(id));
+      return !!(this.state && Array.isArray(this.state.perks) && this.state.perks.includes(id));
     },
     makePart(slot, rarity, randomize) {
       const r = RL.RARITIES[rarity];
@@ -927,9 +953,9 @@
       if (t.draft >= 30) this.unlockAch("draft_30");
       if (t.crashes >= 50) this.unlockAch("crash_50");
       if (s.cars.length >= 4) this.unlockAch("cars_4");
-      if (s.inventory.some((p) => p.rarity === "legendary")) this.unlockAch("legendary");
+      if (Array.isArray(s.inventory) && s.inventory.some((p) => p && p.rarity === "legendary")) this.unlockAch("legendary");
       if (s.level >= 10) this.unlockAch("level_10");
-      if (s.perks.length >= 5) this.unlockAch("perks_5");
+      if (Array.isArray(s.perks) && s.perks.length >= 5) this.unlockAch("perks_5");
       if (s.money >= 5e4) this.unlockAch("rich");
       if (s.league >= 2) this.unlockAch("league_2");
       if (s.league >= 3) this.unlockAch("league_3");
@@ -1115,7 +1141,7 @@
     }
   };
 
-  // js/input_defaults.js
+  // 3d/js/input_defaults.js
   var DEFAULT_KEYS = {
     up: ["ArrowUp", "KeyW"],
     down: ["ArrowDown", "KeyS"],
@@ -1147,7 +1173,7 @@
     camera: "Camera view"
   };
 
-  // js/settings.js
+  // 3d/js/settings.js
   var SETTINGS_KEY = "redline_legends_3d_settings_v1";
   var QUALITY = {
     low: {
@@ -1230,7 +1256,7 @@
     }
   };
 
-  // js/audio.js
+  // 3d/js/audio.js
   var ctx = null;
   var master = null;
   var sfxGain = null;
@@ -1410,7 +1436,7 @@
     }
   };
 
-  // js/input.js
+  // 3d/js/input.js
   var keys = /* @__PURE__ */ Object.create(null);
   var pressed = /* @__PURE__ */ Object.create(null);
   var touch = /* @__PURE__ */ Object.create(null);
@@ -1504,7 +1530,7 @@
     }
   };
 
-  // vendor/three/three.module.js
+  // 3d/vendor/three/three.module.js
   var REVISION = "170";
   var CullFaceNone = 0;
   var CullFaceBack = 1;
@@ -25051,7 +25077,7 @@ void main() {
     }
   }
 
-  // vendor/three/addons/shaders/CopyShader.js
+  // 3d/vendor/three/addons/shaders/CopyShader.js
   var CopyShader = {
     name: "CopyShader",
     uniforms: {
@@ -25091,7 +25117,7 @@ void main() {
     )
   };
 
-  // vendor/three/addons/postprocessing/Pass.js
+  // 3d/vendor/three/addons/postprocessing/Pass.js
   var Pass = class {
     constructor() {
       this.isPass = true;
@@ -25135,7 +25161,7 @@ void main() {
     }
   };
 
-  // vendor/three/addons/postprocessing/ShaderPass.js
+  // 3d/vendor/three/addons/postprocessing/ShaderPass.js
   var ShaderPass = class extends Pass {
     constructor(shader, textureID) {
       super();
@@ -25175,7 +25201,7 @@ void main() {
     }
   };
 
-  // vendor/three/addons/postprocessing/MaskPass.js
+  // 3d/vendor/three/addons/postprocessing/MaskPass.js
   var MaskPass = class extends Pass {
     constructor(scene, camera) {
       super();
@@ -25232,7 +25258,7 @@ void main() {
     }
   };
 
-  // vendor/three/addons/postprocessing/EffectComposer.js
+  // 3d/vendor/three/addons/postprocessing/EffectComposer.js
   var EffectComposer = class {
     constructor(renderer, renderTarget) {
       this.renderer = renderer;
@@ -25354,7 +25380,7 @@ void main() {
     }
   };
 
-  // vendor/three/addons/postprocessing/RenderPass.js
+  // 3d/vendor/three/addons/postprocessing/RenderPass.js
   var RenderPass = class extends Pass {
     constructor(scene, camera, overrideMaterial = null, clearColor = null, clearAlpha = null) {
       super();
@@ -25405,7 +25431,7 @@ void main() {
     }
   };
 
-  // vendor/three/addons/shaders/LuminosityHighPassShader.js
+  // 3d/vendor/three/addons/shaders/LuminosityHighPassShader.js
   var LuminosityHighPassShader = {
     name: "LuminosityHighPassShader",
     shaderID: "luminosityHighPass",
@@ -25458,7 +25484,7 @@ void main() {
     )
   };
 
-  // vendor/three/addons/postprocessing/UnrealBloomPass.js
+  // 3d/vendor/three/addons/postprocessing/UnrealBloomPass.js
   var UnrealBloomPass = class _UnrealBloomPass extends Pass {
     constructor(resolution, strength, radius, threshold) {
       super();
@@ -25714,7 +25740,7 @@ void main() {
   UnrealBloomPass.BlurDirectionX = new Vector2(1, 0);
   UnrealBloomPass.BlurDirectionY = new Vector2(0, 1);
 
-  // vendor/three/addons/shaders/OutputShader.js
+  // 3d/vendor/three/addons/shaders/OutputShader.js
   var OutputShader = {
     name: "OutputShader",
     uniforms: {
@@ -25798,7 +25824,7 @@ void main() {
     )
   };
 
-  // vendor/three/addons/postprocessing/OutputPass.js
+  // 3d/vendor/three/addons/postprocessing/OutputPass.js
   var OutputPass = class extends Pass {
     constructor() {
       super();
@@ -25845,7 +25871,7 @@ void main() {
     }
   };
 
-  // js/renderer.js
+  // 3d/js/renderer.js
   var MotionBlurShader = {
     name: "SpeedBlur",
     uniforms: {
@@ -26494,7 +26520,7 @@ void main() {
     }
   };
 
-  // js/textures.js
+  // 3d/js/textures.js
   function canvas(w, h) {
     const c = document.createElement("canvas");
     c.width = w;
@@ -26743,7 +26769,7 @@ void main() {
     return s;
   }
 
-  // js/particles.js
+  // 3d/js/particles.js
   var VERT = `
   attribute float aSize;
   attribute float aAlpha;
@@ -27024,7 +27050,7 @@ void main() {
     };
   }
 
-  // js/districts.js
+  // 3d/js/districts.js
   var DOWNTOWN = { id: "downtown", name: "Downtown", tint: 1717048, blurb: "Where every nobody starts." };
   var HARBOR = { id: "harbor", name: "Harbor", tint: 1323076, blurb: "Cranes, salt air, and quiet money." };
   var NEON = { id: "neon", name: "Neon Mile", tint: 2757684, blurb: "The lights never go out." };
@@ -27541,7 +27567,7 @@ void main() {
     return g;
   }
 
-  // js/city.js
+  // 3d/js/city.js
   var CITY = {
     pitch: 86,
     roadW: 15,
@@ -28166,7 +28192,7 @@ void main() {
     return best;
   }
 
-  // js/track.js
+  // 3d/js/track.js
   var POS = 0.2;
   var WIDTH = 0.095;
   var asphaltTex = null;
@@ -28686,7 +28712,7 @@ void main() {
     });
   }
 
-  // js/drive.js
+  // 3d/js/drive.js
   function playerSteer(input2) {
     const sens = settings.data && settings.data.sensitivity || 1;
     const left = input2 && input2.down && input2.down("left") ? 1 : 0;
@@ -28844,7 +28870,7 @@ void main() {
     if (car.nitro < 0) car.nitro = 0;
   }
 
-  // js/ai.js
+  // 3d/js/ai.js
   function aiInput(car, track, dt, player, leagueId, weatherGrip, raceT) {
     const pers = RL.PERSONALITIES[car.ai.pers] || RL.PERSONALITIES.clean;
     const skill = car.skill || 0.85;
@@ -28929,7 +28955,7 @@ void main() {
     };
   }
 
-  // js/cars.js
+  // 3d/js/cars.js
   var SPECS = {
     Hatchback: { L: 3.7, W: 1.7, ride: 0.32, bodyH: 0.98, roof: 1.5, cabinRear: -0.85, cabinFront: 0.55, wing: 0 },
     Kei: { L: 3.2, W: 1.5, ride: 0.3, bodyH: 1.08, roof: 1.64, cabinRear: -0.72, cabinFront: 0.72, wing: 0 },
@@ -29259,7 +29285,7 @@ void main() {
     return def && def.cls || "Coupe";
   }
 
-  // js/wrecks.js
+  // 3d/js/wrecks.js
   var wrecks = {
     bits: [],
     lights: [],
@@ -29357,7 +29383,7 @@ void main() {
     }
   };
 
-  // js/heat.js
+  // 3d/js/heat.js
   var STAR_AT = [0, 72, 160, 270, 410, 580];
   var HEAT_MAX = 1e6;
   var HIDE_SEC = [0, 90, 120, 150, 180, 240];
@@ -29411,7 +29437,7 @@ void main() {
     return CRIME[kind] || 0;
   }
 
-  // js/sight.js
+  // 3d/js/sight.js
   var SIGHT = {
     range: 11,
     wind: 0.96,
@@ -29426,7 +29452,7 @@ void main() {
     return "hit";
   }
 
-  // js/foot.js
+  // 3d/js/foot.js
   var FEE_CAP = 380;
   var CHAIN = 12;
   var WINDUP = 0.62;
@@ -30012,7 +30038,7 @@ void main() {
     return out;
   }
 
-  // js/wanted.js
+  // 3d/js/wanted.js
   function copTarget(stars, heat) {
     if (stars <= 0) return 0;
     if (stars === 1) {
@@ -30771,7 +30797,7 @@ void main() {
     }
   };
 
-  // js/roles.js
+  // 3d/js/roles.js
   var ROLE_ORDER = ["neutral", "criminal", "police"];
   var XP_STEPS = [0, 40, 110, 200, 320];
   var COOLDOWN = 6e4;
@@ -31161,13 +31187,17 @@ void main() {
     roles.revokeForWanted();
   };
 
-  // js/robbery.js
+  // 3d/js/robbery.js
   var TILL_MS = 9e4;
   var SHOPS = {
     shop: { name: "Shop", pay: 280, heat: 14 },
     mart: { name: "Quick Mart", pay: 460, heat: 16 },
     dealer: { name: "Dealership", pay: 820, heat: 18 },
-    gas: { name: "Nitro Fuel", pay: 180, heat: 14 }
+    chandler: { name: "Parts", pay: 340, heat: 15 },
+    scrap: { name: "Scrap", pay: 200, heat: 14 },
+    customs: { name: "Customs", pay: 500, heat: 17 },
+    gas: { name: "Nitro Fuel", pay: 180, heat: 14 },
+    diner: { name: "Mile Diner", pay: 150, heat: 14 }
   };
   function isShop(id) {
     return !!SHOPS[id];
@@ -31231,7 +31261,7 @@ void main() {
     };
   }
 
-  // js/hub.js
+  // 3d/js/hub.js
   var hub = {
     active: false,
     player: null,
@@ -31242,6 +31272,7 @@ void main() {
     prompt: null,
     msgs: [],
     challenge: null,
+    doorCd: 0,
     enter(city, fx) {
       this.city = city;
       this.fx = fx;
@@ -31436,6 +31467,7 @@ void main() {
     },
     update(dt, input2) {
       if (!this.active || !this.player) return;
+      if (this.doorCd > 0) this.doorCd = Math.max(0, this.doorCd - dt);
       const S = career.state;
       const p = this.player;
       p.invuln = Math.max(0, (p.invuln || 0) - dt);
@@ -31830,46 +31862,15 @@ void main() {
           if (input2.hit("action")) this._payImpound();
           return;
         }
-        if (lot.id === "police") {
-          if (wanted.stars > 0 && career.state.role !== "police") {
-            this.prompt = { kind: "hq", text: "HQ is shut. Lose the heat first." };
-            return;
-          }
-          this.prompt = { kind: "hq", text: "HQ \u2014 role, rank, duty  [E]" };
-          if (input2.hit("action") && this.onPoi) this.onPoi("hq");
+        if ((lot.id === "police" || lot.id === "hq") && wanted.stars > 0 && career.state.role !== "police") {
+          this.prompt = { kind: "hq", text: "HQ is shut. Lose the heat first." };
           return;
         }
-        if (lot.id === "bar" && career.state.role === "criminal") {
-          this.prompt = { kind: "jobs", text: "Hideout \u2014 crew jobs  [E]" };
-          if (input2.hit("action") && this.onPoi) this.onPoi("jobs");
+        if (this.doorCd > 0) {
+          this.prompt = { kind: lot.id, text: lot.name };
           return;
         }
-        if (lot.id === "warehouse") {
-          if (career.state.role === "criminal") {
-            this.prompt = { kind: "jobs", text: "Harbor hideout \u2014 load a run  [E]" };
-            if (input2.hit("action") && this.onPoi) this.onPoi("jobs");
-          } else {
-            this.prompt = { kind: "warehouse", text: "Harbor Co. \u2014 criminals load after midnight" };
-            if (input2.hit("action") && this.onMark) this.onMark(lot);
-          }
-          return;
-        }
-        if (lot.id === "bank") {
-          if (career.state.role === "criminal") {
-            this.prompt = { kind: "bank", text: "Heist the bank  [E]" };
-            if (input2.hit("action") && this.onPoi) this.onPoi("bank");
-          } else {
-            this.prompt = { kind: "bank", text: "Neon Bank \u2014 the vault stays shut" };
-            if (input2.hit("action") && this.onMark) this.onMark(lot);
-          }
-          return;
-        }
-        if (lot.id === "vista") {
-          this.prompt = { kind: "vista", text: "Vista \u2014 photograph the city  [E]" };
-          if (input2.hit("action") && this.onPoi) this.onPoi("vista");
-          return;
-        }
-        this.prompt = { kind: lot.id, text: lot.name + "  [E]" };
+        this.prompt = { kind: lot.id, text: "Enter " + lot.name + "  [E]" };
         if (input2.hit("action") && this.onPoi) this.onPoi(lot.id);
         return;
       }
@@ -31879,8 +31880,8 @@ void main() {
       }
       const mark = nearestLandmark(this.city, p.x, p.z, 12);
       if (mark && p.speed < 8) {
-        this.prompt = { kind: "mark", text: mark.name + "  [E]" };
-        if (input2.hit("action") && this.onMark) this.onMark(mark);
+        this.prompt = { kind: "mark", text: mark.name + (this.doorCd > 0 ? "" : "  [E]") };
+        if (this.doorCd <= 0 && input2.hit("action") && this.onMark) this.onMark(mark);
         return;
       }
       if (this.parked && Math.hypot(p.x - this.parked.x, p.z - this.parked.z) < 5.5 && p.speed < 8) {
@@ -32239,7 +32240,7 @@ void main() {
     }
   };
 
-  // js/race.js
+  // 3d/js/race.js
   var race = {
     active: false,
     track: null,
@@ -32875,7 +32876,7 @@ void main() {
     return { x: car.x, y: 0, z: car.z };
   }
 
-  // js/drag.js
+  // 3d/js/drag.js
   var GEAR_TOP = [0.2, 0.37, 0.55, 0.74, 1];
   var PERFECT = [0.9, 0.985];
   var drag = {
@@ -33233,7 +33234,7 @@ void main() {
     }
   };
 
-  // js/photo.js
+  // 3d/js/photo.js
   var photo = {
     active: false,
     yaw: 0.9,
@@ -33322,7 +33323,7 @@ void main() {
     }
   };
 
-  // js/tracks.js
+  // 3d/js/tracks.js
   var KEY = "redline_legends_3d_tracks_v1";
   var THEMES = ["city", "desert", "snow", "neon"];
   function ls() {
@@ -33401,7 +33402,7 @@ void main() {
     return def;
   }
 
-  // js/ui.js
+  // 3d/js/ui.js
   var $ = (id) => document.getElementById(id);
   var actions = {};
   var stack = [];
@@ -33557,7 +33558,8 @@ void main() {
     showCustom,
     showHospital,
     showGas,
-    showPlace
+    showPlace,
+    open
   };
   function open(view) {
     stack.push(view);
@@ -33732,7 +33734,7 @@ void main() {
   }
   function showHelp() {
     const clock = (n) => formatCooldown(hideSeconds(n));
-    open({ title: "How to Play", cls: "help-panel", render: () => `<ul class="help"><li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building's lot and press <kbd>E</kbd>. The avenue itself is not a door. Downtown has the garage, race office, shop, dealership, and the bar hideout. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway meetup is east.</li><li><b>Heat:</b> stars do not stop at five. The board shows up to five star icons, then a count such as \u2605 x12. A nudge or a cone barely counts. Red lights, wrecks, smashed props, and holding a high speed do count. Stars do not fall while the police can see you. Break line of sight and stay hidden. The HUD shows a white cooldown: ` + clock(1) + " at one star, " + clock(5) + " at five, and " + clock(8) + " at eight. Past five, every extra star waits longer. Spotting you resets that clock. When it hits zero, one star drops. Kingpin trims the wait a little. Each new star adds bounty, and a higher star adds more. Running someone over, ramming a car, or wrecking one adds bounty too. Losing the police pays nothing and does not wipe it. The bounty stays until you are busted. In a city server, a cop can bust you and claim it. Cruisers start off screen, on a road, and drive to you. A stuck cruiser reverses. It does not pop in beside you. Past five stars the squad stays small enough to dodge.</li><li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> or <kbd>C</kbd> to steal it. The STEAL button does the same. Tiers have different speed and health. Circuit races and the drag strip always use the car you own. At a shop door, <kbd>C</kbd> robs the till instead.</li><li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. If a cop picks up a wanted star, they become Neutral immediately and cannot change roles for 5 minutes. The timer shows on screen and is stored in the save. Each role has its own rank. A criminal is a known face: shops, repairs, fuel, and the hospital cost 12% more, sales pay less, and heat falls slower. Kingpin waives that street tax.</li><li><b>On sight:</b> with no wanted stars, an officer outside the police station still shoots a criminal in view. The shot flashes, then fires at the spot you were standing. Move more than a step, take the far lane, break the line with a building, or pull into the station lot. The lot is a ceasefire so you can still change roles. The shot spends health. It does not add a star. Driving off refills that health.</li><li><b>Shops:</b> Walk into the lot of the parts shop, Quick Mart, the dealership, or Nitro Fuel. On foot, walk up to the same lot. <kbd>E</kbd> opens the counter. <kbd>C</kbd> or Rob the register takes the cash. Away from a till, <kbd>C</kbd> still steals a car. Wanted stars go up, and the bounty under them goes up with the heat. The till stays empty for about a minute. <kbd>Q</kbd> gets you back in the car.</li><li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li><li><b>Camera:</b> <kbd>V</kbd>, the Cam button, or the touch CAM button cycles chase, cockpit, a front camera (the road ahead stays in the corner), and top-down. A label such as Camera: Chase [V] shows the one you just picked. Top-down follows you from above and stays above the roofs. Settings chooses north-up or car-up. Left and right steer the car, including on foot and on the touch pad. The front camera looks back at you, so the car can move the other way on the screen. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li><li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260, or a bit more if you are a known criminal. Blowing up during a chase counts as a bust.</li><li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li><li><b>Drag:</b> hold brake + gas to stage, release brake on green, then shift with Space or Shift. Perfect shifts are a real bonus.</li><li><b>Custom:</b> the Race Office opens a custom grid and the track editor. Export a share code to pass a layout around.</li><li><b>Streets:</b> parked rivals with a gold glow will race you point to point. Police players can intercept them instead.</li><li>Top 3 in all three league races unlocks the boss. Beat the boss to get promoted.</li><li><kbd>F</kbd> photo mode. <kbd>R</kbd> resets you to the road if you get stuck. <kbd>Esc</kbd> pauses.</li></ul>" });
+    open({ title: "How to Play", cls: "help-panel", render: () => `<ul class="help"><li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building's lot and press <kbd>E</kbd> to walk inside. The avenue itself is not a door. Talk to the person at the counter. The south door leaves. Downtown has the garage, race office, shop, dealership, and the bar. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway building is east. The tower outside it is the same room.</li><li><b>Heat:</b> stars do not stop at five. The board shows up to five star icons, then a count such as \u2605 x12. A nudge or a cone barely counts. Red lights, wrecks, smashed props, and holding a high speed do count. Stars do not fall while the police can see you. Break line of sight and stay hidden. The HUD shows a white cooldown: ` + clock(1) + " at one star, " + clock(5) + " at five, and " + clock(8) + " at eight. Past five, every extra star waits longer. Spotting you resets that clock. When it hits zero, one star drops. Kingpin trims the wait a little. Each new star adds bounty, and a higher star adds more. Running someone over, ramming a car, or wrecking one adds bounty too. Losing the police pays nothing and does not wipe it. The bounty stays until you are busted. In a city server, a cop can bust you and claim it. Cruisers start off screen, on a road, and drive to you. A stuck cruiser reverses. It does not pop in beside you. Past five stars the squad stays small enough to dodge.</li><li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> or <kbd>C</kbd> to steal it. The STEAL button does the same. Tiers have different speed and health. Circuit races and the drag strip always use the car you own. At a shop door, or at the counter inside, <kbd>C</kbd> robs the till instead.</li><li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. If a cop picks up a wanted star, they become Neutral immediately and cannot change roles for 5 minutes. The timer shows on screen and is stored in the save. Each role has its own rank. A criminal is a known face: shops, repairs, fuel, and the hospital cost 12% more, sales pay less, and heat falls slower. Kingpin waives that street tax.</li><li><b>On sight:</b> with no wanted stars, an officer outside the police station still shoots a criminal in view. The shot flashes, then fires at the spot you were standing. Move more than a step, take the far lane, break the line with a building, or pull into the station lot. The lot is a ceasefire so you can still change roles. The shot spends health. It does not add a star. Driving off refills that health.</li><li><b>Shops:</b> Walk into the parts shop, Quick Mart, the dealership, or Nitro Fuel. On foot, the lot is the door. Inside, walk up to the counter. <kbd>E</kbd> talks to the clerk. <kbd>C</kbd> at that counter, or at the door, takes the cash. Rob the register does the same. Away from a till, <kbd>C</kbd> still steals a car. Wanted stars go up, and the bounty under them goes up with the heat. The till stays empty for about a minute. <kbd>Q</kbd> gets you back in the car.</li><li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li><li><b>Camera:</b> <kbd>V</kbd>, the Cam button, or the touch CAM button cycles chase, cockpit, a front camera (the road ahead stays in the corner), and top-down. A label such as Camera: Chase [V] shows the one you just picked. Top-down follows you from above and stays above the roofs. Settings chooses north-up or car-up. Left and right steer the car, including on foot and on the touch pad. The front camera looks back at you, so the car can move the other way on the screen. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li><li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260, or a bit more if you are a known criminal. Blowing up during a chase counts as a bust.</li><li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li><li><b>Drag:</b> walk into the drag building or the tower and talk to the starter. Stage a drag puts you on the tree. Hold brake + gas, release the brake on green, then shift with Space or Shift. You can also stage from the strip apron. Perfect shifts are a real bonus.</li><li><b>Custom:</b> the Race Office opens a custom grid and the track editor. Export a share code to pass a layout around.</li><li><b>Streets:</b> parked rivals with a gold glow will race you point to point. Police players can intercept them instead.</li><li>Top 3 in all three league races unlocks the boss. Beat the boss to get promoted.</li><li><kbd>F</kbd> photo mode. <kbd>R</kbd> resets you to the road if you get stuck. <kbd>Esc</kbd> pauses.</li></ul>" });
   }
   function showGarage(tab) {
     const v = {
@@ -33897,13 +33899,16 @@ void main() {
       ui.back();
     } } });
   }
-  function showGas() {
-    open({ title: "Nitro Fuel", render: () => {
+  function showGas(place) {
+    const id = isShop(place) ? place : "gas";
+    const title = id === "diner" ? "Mile Diner" : "Nitro Fuel";
+    open({ title, render: () => {
       const car = career.currentCar();
       const cost = career.bill(120);
-      return card("gas") + '<p class="rob-line">High-test and a hose. Patch 15% damage for $' + cost + '.</p><p class="rob-line">Damage ' + Math.round(car.damage) + '%</p><div class="row"><button class="primary" data-act="fix"' + (career.state.money < cost || car.damage < 1 ? " disabled" : "") + ">Patch</button></div>";
+      const blurb = id === "diner" ? "Coffee and a wrench. Patch 15% damage for $" + cost + "." : "High-test and a hose. Patch 15% damage for $" + cost + ".";
+      return card(id) + '<p class="rob-line">' + blurb + '</p><p class="rob-line">Damage ' + Math.round(car.damage) + '%</p><div class="row"><button class="primary" data-act="fix"' + (career.state.money < cost || car.damage < 1 ? " disabled" : "") + ">Patch</button></div>";
     }, acts: {
-      robbery: () => finishRob(rob("gas")),
+      robbery: () => finishRob(rob(id)),
       fix: () => {
         const car = career.currentCar();
         const cost = career.bill(120);
@@ -34446,7 +34451,7 @@ void main() {
     el.textContent = "Redline Legends 3D failed to start: " + (err && err.message ? err.message : err);
   }
 
-  // js/editor.js
+  // 3d/js/editor.js
   var THEMES2 = ["city", "desert", "snow", "neon"];
   var editor = {
     active: false,
@@ -34752,7 +34757,283 @@ void main() {
     }
   };
 
-  // js/game.js
+  // 3d/js/interior.js
+  var REACH = 1.35;
+  var RADIUS = 0.32;
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  }
+  var interior = {
+    active: false,
+    prompt: "",
+    hooks: {},
+    room: null,
+    id: "",
+    x: 0,
+    y: 0,
+    lock: 0,
+    group: null,
+    player: null,
+    npcs: [],
+    bind(hooks2) {
+      this.hooks = hooks2 || {};
+    },
+    enter(id) {
+      const lib = window.RLInteriorData;
+      if (!lib || !gfx.world) return false;
+      const room = lib.resolve(id);
+      if (!room) return false;
+      if (this.active) this.leave({ silent: true });
+      this.id = id;
+      this.room = room;
+      this.x = room.w / 2;
+      this.y = room.h - 1.65;
+      this.lock = 0.4;
+      this.prompt = "Walk up to someone \xB7 E to talk \xB7 south door leaves";
+      this._build(room);
+      this.active = true;
+      document.body.classList.add("indoors");
+      if (this.hooks.onEnter) this.hooks.onEnter(room);
+      return true;
+    },
+    leave(opts) {
+      if (!this.active && !this.group) return false;
+      this._dispose();
+      this.active = false;
+      this.room = null;
+      this.prompt = "";
+      this.player = null;
+      this.npcs = [];
+      document.body.classList.remove("indoors");
+      if (this.hooks.onLeave) this.hooks.onLeave(opts || {});
+      return true;
+    },
+    npcByService(service) {
+      if (!this.room) return null;
+      for (let i = 0; i < this.room.npcs.length; i++) {
+        if (this.room.npcs[i].service === service) return this.room.npcs[i];
+      }
+      return null;
+    },
+    standAt(n) {
+      if (!this.room || !n) return;
+      this.x = n.x;
+      this.y = Math.min(this.room.h - 1.7, n.y + 0.95);
+      this.lock = 0;
+      if (this.player) this.player.position.set(this.x, 0, this.y);
+    },
+    update(dt, input2) {
+      if (!this.active || !this.room) return;
+      this.lock = Math.max(0, this.lock - dt);
+      if (ui.isOpen()) {
+        this.prompt = "";
+        return;
+      }
+      let mx = 0, my = 0;
+      if (input2.down("left")) mx -= 1;
+      if (input2.down("right")) mx += 1;
+      if (input2.down("up")) my -= 1;
+      if (input2.down("down")) my += 1;
+      if (mx || my) {
+        const len = Math.hypot(mx, my);
+        const sp = 4.6 * dt;
+        const nx = this.x + mx / len * sp;
+        const ny = this.y + my / len * sp;
+        if (!this._blocked(nx, this.y)) this.x = nx;
+        if (!this._blocked(this.x, ny)) this.y = ny;
+        if (this.player) this.player.rotation.y = Math.atan2(mx, my);
+      }
+      if (this.player) {
+        this.player.position.set(this.x, Math.sin(performance.now() / 160) * 0.03, this.y);
+      }
+      const npc = this._nearest();
+      const exit = this._atExit();
+      const till = npc && isShop(this.id) ? this.id : null;
+      if (npc && till) this.prompt = promptLine(till).replace("  [E]", "  [E] " + npc.name);
+      else if (npc) this.prompt = "E: " + npc.name + (npc.title ? " \xB7 " + npc.title : "");
+      else if (exit) this.prompt = "E: exit door";
+      else this.prompt = "Walk up to someone \xB7 E to talk \xB7 south door leaves";
+      if (this.lock <= 0 && npc && till && input2.hit("steal")) {
+        const res = rob(till);
+        if (res.text) ui.toast(res.text, "#fff");
+        return;
+      }
+      if (this.lock > 0 || !input2.hit("action")) return;
+      if (npc) this._talk(npc);
+      else if (exit) this.leave();
+    },
+    aim() {
+      const cam = gfx.camera;
+      cam.up.set(0, 0, -1);
+      cam.position.set(this.x, 15.5, this.y);
+      cam.lookAt(this.x, 0, this.y);
+    },
+    _talk(npc) {
+      const self2 = this;
+      const till = isShop(this.id) ? this.id : null;
+      ui.open({
+        title: npc.name,
+        render: () => '<p class="speaker" style="color:#fff"><b>' + esc(npc.name) + "</b>" + (npc.title ? " \xB7 " + esc(npc.title) : "") + '</p><p style="color:#fff">' + esc(npc.line) + "</p>" + (till ? '<div class="row"><button data-act="rob">Rob the register</button></div>' : "") + '<div class="row"><button class="primary" data-act="go">' + esc(npc.verb || "Talk") + "</button>" + (npc.alt ? '<button data-act="alt">' + esc(npc.alt) + "</button>" : "") + '<button data-act="bye">Later</button></div>',
+        acts: {
+          go: () => {
+            if (self2.hooks.run) self2.hooks.run(npc.service, self2.id);
+          },
+          alt: () => {
+            if (self2.hooks.run) self2.hooks.run(npc.altService || npc.service, self2.id);
+          },
+          rob: () => {
+            const res = till ? rob(till) : { text: "" };
+            if (res.text) ui.toast(res.text, "#fff");
+            ui.back();
+          },
+          bye: () => ui.back()
+        }
+      });
+    },
+    _nearest() {
+      let best = null, bd = REACH;
+      const list2 = this.room.npcs;
+      for (let i = 0; i < list2.length; i++) {
+        const d = Math.hypot(this.x - list2[i].x, this.y - list2[i].y);
+        if (d < bd) {
+          bd = d;
+          best = list2[i];
+        }
+      }
+      return best;
+    },
+    _atExit() {
+      return this.y > this.room.h - 1.2 && Math.abs(this.x - this.room.w / 2) < 0.95;
+    },
+    _blocked(x, y) {
+      const room = this.room, r = RADIUS;
+      if (x < 0.55 + r || x > room.w - 0.55 - r) return true;
+      const door = Math.abs(x - room.w / 2) < 0.78;
+      if (y < 0.55 + r) return true;
+      if (y > room.h - 0.42 - r && !(door && y < room.h - 0.08)) return true;
+      if (y > room.h - 0.08) return true;
+      for (let i = 0; i < room.props.length; i++) {
+        const p = room.props[i];
+        if (x > p.x - r && x < p.x + p.w + r && y > p.y - r && y < p.y + p.h + r) return true;
+      }
+      for (let i = 0; i < room.npcs.length; i++) {
+        const n = room.npcs[i];
+        if (Math.hypot(x - n.x, y - n.y) < 0.52) return true;
+      }
+      return false;
+    },
+    _build(room) {
+      const g = new Group();
+      g.name = "interior";
+      const floor = new Mesh(
+        new BoxGeometry(room.w, 0.2, room.h),
+        new MeshStandardMaterial({ color: room.floor, roughness: 0.9, metalness: 0, emissive: room.floor, emissiveIntensity: 0.28 })
+      );
+      floor.position.set(room.w / 2, -0.1, room.h / 2);
+      g.add(floor);
+      const tileMat = new MeshStandardMaterial({ color: room.alt, roughness: 0.92, emissive: room.alt, emissiveIntensity: 0.18 });
+      for (let ty = 0; ty < room.h; ty += 2) {
+        for (let tx = ty / 2 % 2; tx < room.w; tx += 2) {
+          const tile = new Mesh(new BoxGeometry(1, 0.04, 1), tileMat);
+          tile.position.set(tx + 0.5, 0.02, ty + 0.5);
+          g.add(tile);
+        }
+      }
+      const wallMat = new MeshStandardMaterial({ color: room.wall, roughness: 0.8, emissive: room.trim, emissiveIntensity: 0.12 });
+      const wall = (x, z, w, d) => {
+        const m = new Mesh(new BoxGeometry(w, 2.5, d), wallMat);
+        m.position.set(x, 1.25, z);
+        g.add(m);
+      };
+      wall(room.w / 2, 0.25, room.w, 0.5);
+      wall(0.25, room.h / 2, 0.5, room.h);
+      wall(room.w - 0.25, room.h / 2, 0.5, room.h);
+      const side = room.w / 2 - 0.85;
+      wall(side / 2, room.h - 0.25, side, 0.5);
+      wall(room.w - side / 2, room.h - 0.25, side, 0.5);
+      const door = new Mesh(
+        new BoxGeometry(1.6, 0.08, 0.5),
+        new MeshStandardMaterial({ color: 8257370, emissive: 8257370, emissiveIntensity: 0.6, roughness: 0.4 })
+      );
+      door.position.set(room.w / 2, 0.05, room.h - 0.25);
+      g.add(door);
+      const exit = makeNameSprite("EXIT", "#ffffff");
+      exit.position.set(room.w / 2, 1.6, room.h - 0.25);
+      g.add(exit);
+      for (let i = 0; i < room.props.length; i++) {
+        const p = room.props[i];
+        const box = new Mesh(
+          new BoxGeometry(p.w, 0.9, p.h),
+          new MeshStandardMaterial({ color: p.color, roughness: 0.7, emissive: p.color, emissiveIntensity: 0.18 })
+        );
+        box.position.set(p.x + p.w / 2, 0.45, p.y + p.h / 2);
+        g.add(box);
+        if (p.label) {
+          const tag = makeNameSprite(p.label, "#ffffff");
+          tag.position.set(p.x + p.w / 2, 1.55, p.y + p.h / 2);
+          g.add(tag);
+        }
+      }
+      this.npcs = [];
+      for (let i = 0; i < room.npcs.length; i++) {
+        const n = room.npcs[i];
+        const person = makePerson(n.color || "#ffffff", false);
+        person.position.set(n.x, 0, n.y);
+        const tag = makeNameSprite(n.name, "#ffffff");
+        person.add(tag);
+        g.add(person);
+        this.npcs.push(person);
+      }
+      this.player = makePerson("#ff3b6b", false);
+      this.player.position.set(this.x, 0, this.y);
+      g.add(this.player);
+      const light = new PointLight(room.trim || 16777215, 6, 28, 1.4);
+      light.position.set(room.w / 2, 4.2, room.h / 2);
+      g.add(light);
+      const fill = new PointLight(16777215, 3, 24, 1.6);
+      fill.position.set(room.w / 2, 3.2, room.h - 2);
+      g.add(fill);
+      this.group = g;
+      gfx.world.add(g);
+    },
+    _dispose() {
+      const g = this.group;
+      if (!g) return;
+      gfx.world.remove(g);
+      const people = [];
+      g.traverse((obj) => {
+        if (obj.userData && obj.userData.person) people.push(obj);
+      });
+      people.forEach((p) => {
+        p.traverse((obj) => {
+          if (obj.isSprite && obj.material) {
+            if (obj.material.map) obj.material.map.dispose();
+            obj.material.dispose();
+          }
+        });
+        disposePerson(p);
+      });
+      const seen = /* @__PURE__ */ new Set();
+      const dropMat = (m) => {
+        if (!m || seen.has(m)) return;
+        seen.add(m);
+        if (m.map) m.map.dispose();
+        m.dispose();
+      };
+      g.traverse((obj) => {
+        if (obj.userData && obj.userData.person) return;
+        if (obj.parent && obj.parent.userData && obj.parent.userData.person) return;
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          mats.forEach(dropMat);
+        }
+      });
+      this.group = null;
+    }
+  };
+
+  // 3d/js/game.js
   var $2 = (id) => document.getElementById(id);
   var STEP = 1 / 60;
   function escapeHud(s) {
@@ -34786,7 +35067,44 @@ void main() {
       }
       this._bindActions();
       hub.onPoi = (id) => this._poi(id);
-      hub.onMark = (mark) => ui.showPlace(mark.name, mark.blurb || mark.text || "");
+      hub.onMark = (mark) => {
+        if (mark && mark.id === "tower") {
+          audio.play("confirm");
+          interior.enter("dragway");
+          return;
+        }
+        ui.showPlace(mark.name, mark.blurb || mark.text || "");
+      };
+      const self2 = this;
+      interior.bind({
+        onEnter() {
+          self2._showCity(false);
+          self2.mode = "interior";
+          ui.setMode("hub");
+          ui.closeAll();
+        },
+        onLeave(opts) {
+          self2._showCity(true);
+          gfx.camera.up.set(0, 1, 0);
+          hub.doorCd = 0.85;
+          const p = hub.player;
+          if (p && self2.city) {
+            const lot = lotAt(self2.city, p.x, p.z);
+            if (lot) {
+              p.z = lot.z - lot.hz - 1.7;
+              p.vx = p.vz = 0;
+              p.speed = 0;
+            }
+          }
+          if (!(opts && opts.silent) && self2.mode === "interior") {
+            self2.mode = "hub";
+            ui.setMode("hub");
+          }
+        },
+        run(service, id) {
+          self2._interiorService(service, id);
+        }
+      });
       actions.playerHp = () => hub.player && hub.player.hp != null ? hub.player.hp : 100;
       actions.healPlayer = () => {
         if (hub.player) hub.player.hp = 100;
@@ -34956,6 +35274,7 @@ void main() {
           return;
         }
       }
+      if (interior.active) interior.leave({ silent: true });
       ui.closeAll();
       if (editor.active) editor.leave();
       this.lastCfg = Object.assign({}, cfg);
@@ -34982,6 +35301,7 @@ void main() {
       this.weather = cfg.weather || "clear";
     },
     startDrag() {
+      if (interior.active) interior.leave({ silent: true });
       ui.closeAll();
       const strip = this.city.strip;
       this._hideFreeRoam();
@@ -35008,6 +35328,7 @@ void main() {
       ui.showResults(sum);
     },
     toHub() {
+      if (interior.active) interior.leave({ silent: true });
       race.stop();
       drag.stop();
       if (photo.active) photo.exit();
@@ -35030,6 +35351,7 @@ void main() {
       this._showCam(gfx.view);
     },
     _leavePlay() {
+      if (interior.active) interior.leave({ silent: true });
       race.stop();
       drag.stop();
       if (photo.active) photo.exit();
@@ -35083,25 +35405,97 @@ void main() {
     },
     _poi(id) {
       audio.play("confirm");
+      const key = id === "police" ? "hq" : id === "drag" ? "dragway" : id;
+      if (interior.enter(key)) return;
+      ui.toast("The door is locked.");
+    },
+    _interiorService(service, id) {
+      ui.closeAll();
+      const role = career.state && career.state.role;
+      const place = (name, text) => ui.showPlace(name, text);
+      const shopPlace = (fallback) => id && id !== fallback ? id : fallback;
       const map = {
-        garage: ui.showGarage,
-        office: ui.showOffice,
-        shop: () => ui.showShop("parts", "shop"),
+        garage: () => ui.showGarage(),
+        office: () => ui.showOffice(),
+        shop: () => ui.showShop("parts", shopPlace("shop")),
+        chandler: () => ui.showShop("parts", "chandler"),
+        cars: () => ui.showShop("cars", shopPlace("dealer")),
         dealer: () => ui.showShop("cars", "dealer"),
+        sell: () => ui.showShop("sell", shopPlace("scrap")),
+        scrap: () => ui.showShop("sell", "scrap"),
+        bar: () => {
+          if (role === "criminal") {
+            interior.leave();
+            ui.showJobs();
+          } else ui.showBar();
+        },
+        training: () => ui.showTraining(),
+        hq: () => ui.showHQ(),
+        police: () => ui.showHQ(),
+        precinct: () => ui.showHQ(),
+        customs: () => ui.showGarage("look"),
+        gears: () => ui.showGarage("tune"),
+        drag: () => {
+          interior.leave({ silent: true });
+          this.startDrag();
+        },
+        booth: () => {
+          interior.leave({ silent: true });
+          this.startDrag();
+        },
+        street: () => {
+          interior.leave();
+          ui.toast("Gold cars on the street will race you.", "#ff2ef0");
+        },
+        meetup: () => {
+          interior.leave();
+          ui.toast("Gold cars on the avenue will race you.", "#ff2ef0");
+        },
+        club: () => {
+          interior.leave();
+          ui.toast("Gold cars on the avenue will race you.", "#ff2ef0");
+        },
+        pitmeet: () => {
+          interior.leave();
+          ui.toast("Gold cars on the avenue will race you.", "#ff2ef0");
+        },
+        vista: () => {
+          interior.leave();
+          this.togglePhoto();
+        },
+        hospital: () => ui.showHospital(),
+        clinic: () => ui.showHospital(),
+        gas: () => ui.showGas(id === "diner" ? "diner" : "gas"),
+        diner: () => ui.showGas("diner"),
+        jobs: () => ui.showJobs(),
+        warehouse: () => {
+          if (role === "criminal") {
+            interior.leave();
+            ui.showJobs();
+          } else place("Harbor Co.", "Criminals load the containers after midnight.");
+        },
+        bank: () => {
+          if (role === "criminal") {
+            interior.leave();
+            roles.startHeist("bank");
+          } else place("Neon Bank", "The vault stays shut unless you are criminal.");
+        },
         mart: () => ui.showShop("parts", "mart"),
-        bar: ui.showBar,
-        training: ui.showTraining,
-        police: ui.showHQ,
-        hq: ui.showHQ,
-        jobs: ui.showJobs,
-        hospital: ui.showHospital,
-        gas: ui.showGas,
-        drag: () => this.startDrag(),
-        vista: () => this.togglePhoto(),
-        bank: () => roles.startHeist("bank")
+        chop: () => {
+          interior.leave();
+          ui.showJobs();
+        },
+        safehouse: () => {
+          interior.leave();
+          ui.showJobs();
+        },
+        impound: () => place("Impound", "Pay the release on the garage lot. The gate out front still has the fee."),
+        lockup: () => place("Old Lockup", "A quiet stash. The city pretends it is a storage unit."),
+        hall: () => place("City Hall", "Districts are named on the map. Every door in this city opens onto a room.")
       };
-      const fn = map[id];
+      const fn = map[service] || map[id];
       if (fn) fn();
+      else place(id || "Counter", "The counter is staffed.");
     },
     togglePhoto() {
       if (!career.state || this.mode === "title") return;
@@ -35195,7 +35589,7 @@ void main() {
           ui.showPause();
           return;
         }
-        if (this.mode === "hub" || this.mode === "street") {
+        if (this.mode === "hub" || this.mode === "street" || this.mode === "interior") {
           ui.showMenu();
           return;
         }
@@ -35225,6 +35619,8 @@ void main() {
         race.update(dt, input, null);
       } else if (this.mode === "editor") {
         editor.update(dt, input);
+      } else if (this.mode === "interior") {
+        interior.update(dt, input);
       } else if (this.mode === "drag") {
         if (input.hit("drift") || input.hit("nitro")) {
           const kind = drag.shift();
@@ -35288,6 +35684,7 @@ void main() {
       } else if (this.mode === "race") race.present(dt);
       else if (this.mode === "drag") drag.present(dt);
       else if (this.mode === "editor") editor.present();
+      else if (this.mode === "interior") interior.aim();
       else hub.present(dt);
       const speed = this._focusCar() ? this._focusCar().speed : 0;
       wrecks.update(dt);
@@ -35305,7 +35702,7 @@ void main() {
       if (weather) weather.textContent = (RL.WEATHER[this.weather] || RL.WEATHER.clear).name;
       const prompt = $2("prompt");
       if (prompt) {
-        const text = (this.mode === "hub" || this.mode === "street") && hub.prompt ? hub.prompt.text : "";
+        const text = this.mode === "interior" ? interior.prompt || "" : (this.mode === "hub" || this.mode === "street") && hub.prompt ? hub.prompt.text : "";
         prompt.hidden = !text;
         prompt.textContent = text;
       }
@@ -35515,7 +35912,7 @@ void main() {
     return lights;
   }
 
-  // js/main.js
+  // 3d/js/main.js
   var STEP2 = 1 / 60;
   var MAX_FRAME = 0.25;
   var MAX_STEPS = 15;
@@ -35607,6 +36004,7 @@ void main() {
     hub,
     race,
     drag,
+    interior,
     photoMode: photo,
     ui,
     input,

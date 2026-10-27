@@ -138,6 +138,7 @@ RL.Hub = (function () {
   }
   function openBuilding(id) {
     RL.Audio.play('confirm');
+    if (RL.Interior && RL.Interior.enter(id)) return;
     const map = { garage: RL.UI.showGarage, office: RL.UI.showOffice, shop: () => RL.UI.showShop(undefined, 'shop'), bar: RL.UI.showBar, training: RL.UI.showTraining };
     if (map[id]) map[id]();
     else if (RL.City) RL.City.open(id);
@@ -208,7 +209,7 @@ RL.Hub = (function () {
     if (near && !photo) {
       ctx.font = 'bold 15px sans-serif';
       const moving = Math.abs(P.speed || 0) >= 90;
-      const txt = (RL.Jobs && RL.Jobs.isShop(near.id)) ? RL.Jobs.promptLine(near.id, moving) : ('E: ' + near.name);
+      const txt = (RL.Jobs && RL.Jobs.isShop(near.id)) ? RL.Jobs.promptLine(near.id, moving) : ('E: enter ' + near.name);
       const w = ctx.measureText(txt).width + 20;
       ctx.fillStyle = 'rgba(8,6,24,0.85)'; ctx.fillRect(P.x - w / 2, P.y - 56, w, 26);
       ctx.strokeStyle = near.color; ctx.strokeRect(P.x - w / 2, P.y - 56, w, 26);

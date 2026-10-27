@@ -17,6 +17,7 @@ import { wanted } from './wanted.js';
 import { roles } from './roles.js';
 import { editor } from './editor.js';
 import { wrecks } from './wrecks.js';
+import { interior } from './interior.js';
 import { save as saveTrack, encode, decode, list as listTracks } from './tracks.js';
 
 const STEP = 1 / 60;
@@ -112,7 +113,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.__RL3 = {
-  game, career, settings, gfx, hub, race, drag, photoMode: photo, ui, input, actions, audio, editor, wrecks, wanted,
+  game, career, settings, gfx, hub, race, drag, interior, photoMode: photo, ui, input, actions, audio, editor, wrecks, wanted,
   newGame(name) { actions.newGame(name || 'Rookie', { story: false }); },
   setTime(t) { actions.setTime(t); },
   setWeather(w) { game.weather = w; },

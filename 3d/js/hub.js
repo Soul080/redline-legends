@@ -29,6 +29,7 @@ export const hub = {
   prompt: null,
   msgs: [],
   challenge: null,
+  doorCd: 0,
 
   enter(city, fx) {
     this.city = city;
@@ -203,6 +204,7 @@ export const hub = {
 
   update(dt, input) {
     if (!this.active || !this.player) return;
+    if (this.doorCd > 0) this.doorCd = Math.max(0, this.doorCd - dt);
     const S = career.state;
     const p = this.player;
     p.invuln = Math.max(0, (p.invuln || 0) - dt);
@@ -577,54 +579,23 @@ export const hub = {
         if (input.hit('action')) this._payImpound();
         return;
       }
-      if (lot.id === 'police') {
-        if (wanted.stars > 0 && career.state.role !== 'police') {
-          this.prompt = { kind: 'hq', text: 'HQ is shut. Lose the heat first.' };
-          return;
-        }
-        this.prompt = { kind: 'hq', text: 'HQ — role, rank, duty  [E]' };
-        if (input.hit('action') && this.onPoi) this.onPoi('hq');
+      if ((lot.id === 'police' || lot.id === 'hq') && wanted.stars > 0 && career.state.role !== 'police') {
+        this.prompt = { kind: 'hq', text: 'HQ is shut. Lose the heat first.' };
         return;
       }
-      if (lot.id === 'bar' && career.state.role === 'criminal') {
-        this.prompt = { kind: 'jobs', text: 'Hideout — crew jobs  [E]' };
-        if (input.hit('action') && this.onPoi) this.onPoi('jobs');
+      if (this.doorCd > 0) {
+        this.prompt = { kind: lot.id, text: lot.name };
         return;
       }
-      if (lot.id === 'warehouse') {
-        if (career.state.role === 'criminal') {
-          this.prompt = { kind: 'jobs', text: 'Harbor hideout — load a run  [E]' };
-          if (input.hit('action') && this.onPoi) this.onPoi('jobs');
-        } else {
-          this.prompt = { kind: 'warehouse', text: 'Harbor Co. — criminals load after midnight' };
-          if (input.hit('action') && this.onMark) this.onMark(lot);
-        }
-        return;
-      }
-      if (lot.id === 'bank') {
-        if (career.state.role === 'criminal') {
-          this.prompt = { kind: 'bank', text: 'Heist the bank  [E]' };
-          if (input.hit('action') && this.onPoi) this.onPoi('bank');
-        } else {
-          this.prompt = { kind: 'bank', text: 'Neon Bank — the vault stays shut' };
-          if (input.hit('action') && this.onMark) this.onMark(lot);
-        }
-        return;
-      }
-      if (lot.id === 'vista') {
-        this.prompt = { kind: 'vista', text: 'Vista — photograph the city  [E]' };
-        if (input.hit('action') && this.onPoi) this.onPoi('vista');
-        return;
-      }
-      this.prompt = { kind: lot.id, text: lot.name + '  [E]' };
+      this.prompt = { kind: lot.id, text: 'Enter ' + lot.name + '  [E]' };
       if (input.hit('action') && this.onPoi) this.onPoi(lot.id);
       return;
     }
     if (lot) { this.prompt = { kind: lot.id, text: 'Slow down to pull into ' + lot.name }; return; }
     const mark = nearestLandmark(this.city, p.x, p.z, 12);
     if (mark && p.speed < 8) {
-      this.prompt = { kind: 'mark', text: mark.name + '  [E]' };
-      if (input.hit('action') && this.onMark) this.onMark(mark);
+      this.prompt = { kind: 'mark', text: mark.name + (this.doorCd > 0 ? '' : '  [E]') };
+      if (this.doorCd <= 0 && input.hit('action') && this.onMark) this.onMark(mark);
       return;
     }
     if (this.parked && Math.hypot(p.x - this.parked.x, p.z - this.parked.z) < 5.5 && p.speed < 8) {
