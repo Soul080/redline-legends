@@ -8,7 +8,8 @@ import * as THREE from 'three';
 import { career } from './state.js';
 import { gfx } from './renderer.js';
 import { buildCar, disposeCar } from './cars.js';
-import { resolveCity } from './city.js';
+import { resolveCity, lotAt } from './city.js';
+import { SIGHT, sightResult } from './sight.js';
 
 export const FEE_CAP = 380;
 const CHAIN = 12;
@@ -94,6 +95,133 @@ function placeNear(player, dist, ang) {
     x: player.x + Math.cos(ang) * dist,
     z: player.z + Math.sin(ang) * dist
   };
+}
+
+export function clearSight(wanted) {
+  for (const b of wanted.beats || []) releaseBeat(b);
+  wanted.beats = [];
+  wanted.sightTold = false;
+}
+
+function releaseBeat(b) {
+  if (!b || !b.officer) return;
+  gfx.world.remove(b.officer.mesh);
+  disposePerson(b.officer.mesh);
+  b.officer = null;
+}
+
+function policePost(city) {
+  const poi = city && city.pois && city.pois.find((p) => p.id === 'police');
+  if (!poi) return null;
+  return {
+    x: poi.x - 5,
+    z: poi.z - (poi.hz || 5) - 0.6
+  };
+}
+
+export function updateSight(wanted, dt, player, city) {
+  if (!wanted || !player || !city) return;
+  const role = (career.state && career.state.role) || 'neutral';
+  const stars = wanted.stars || 0;
+  if (role !== 'criminal' || stars > 0 || player.invuln > 0) {
+    if (player.invuln > 0 && role === 'criminal' && stars <= 0) holdSight(wanted);
+    else clearSight(wanted);
+    regenSight(player, dt);
+    return;
+  }
+  ensureSight(wanted, city);
+  const cease = !!(lotAt(city, player.x, player.z) && lotAt(city, player.x, player.z).id === 'police');
+  for (const b of wanted.beats || []) tickSight(wanted, b, dt, player, city, cease);
+  if (wanted.pendingDown) {
+    const from = wanted.pendingDown;
+    wanted.pendingDown = null;
+    settle(wanted, player, city, from);
+  }
+  regenSight(player, dt);
+}
+
+function holdSight(wanted) {
+  for (const b of wanted.beats || []) {
+    if (!b.officer) continue;
+    b.officer.state = 'hold';
+    b.officer.cd = Math.max(b.officer.cd || 0, 0.35);
+  }
+}
+
+function ensureSight(wanted, city) {
+  wanted.beats = wanted.beats || [];
+  if (wanted.beats.length) return;
+  const post = policePost(city);
+  if (!post) return;
+  const mesh = makePerson(0x1c3f86, true);
+  gfx.world.add(mesh);
+  mesh.position.set(post.x, 0, post.z);
+  wanted.beats.push({
+    officer: {
+      mesh, x: post.x, z: post.z, h: 0, gun: true, from: 'cop',
+      state: 'hold', timer: 0, cd: 0.5, aimX: post.x, aimZ: post.z
+    }
+  });
+}
+
+function tickSight(wanted, beat, dt, player, city, cease) {
+  const o = beat.officer;
+  if (!o) return;
+  o.cd = Math.max(0, (o.cd || 0) - dt);
+  const dx = player.x - o.x, dz = player.z - o.z;
+  const dist = Math.hypot(dx, dz) || 0.0001;
+  if (o.state === 'aim') {
+    o.timer -= dt;
+    if (o.timer <= 0) {
+      const moved = Math.hypot(player.x - o.aimX, player.z - o.aimZ);
+      const res = sightResult(moved, dist, clearLos(city, o, player), cease);
+      if (res === 'hit') {
+        hurt(wanted, player, SIGHT.dmg, 'cop');
+        if (player.hp > 0) player.hurtT = 1.3;
+      }
+      o.state = 'hold';
+      o.cd = SIGHT.cool;
+    }
+    return;
+  }
+  o.h = Math.atan2(dx, dz);
+  if (o.cd > 0 || cease || dist > SIGHT.range || !clearLos(city, o, player)) return;
+  o.state = 'aim';
+  o.timer = SIGHT.wind;
+  o.aimX = player.x;
+  o.aimZ = player.z;
+  if (!wanted.sightTold) {
+    wanted.sightTold = true;
+    wanted.msg('Police have a shot. Move.', '#fff');
+  }
+}
+
+function regenSight(player, dt) {
+  const role = (career.state && career.state.role) || 'neutral';
+  if (role !== 'criminal') return;
+  if (!player || player.onFoot || player.hp == null || player.hp >= 100) return;
+  if ((player.hurtT || 0) > 0 || player.speed <= 6) return;
+  player.hp = Math.min(100, player.hp + 3.2 * dt);
+}
+
+export function presentSight(wanted) {
+  const beats = wanted.beats || [];
+  const pulse = 0.35 + Math.abs(Math.sin(performance.now() / 90));
+  for (const b of beats) {
+    const o = b.officer;
+    if (!o || !o.mesh) continue;
+    o.mesh.position.set(o.x, 0, o.z);
+    o.mesh.rotation.y = o.h;
+    const wind = o.state === 'aim';
+    if (o.mesh.userData.bodyMat) o.mesh.userData.bodyMat.emissiveIntensity = wind ? pulse : 0;
+    if (o.mesh.userData.arm) o.mesh.userData.arm.rotation.z = wind ? -1.15 : 0.35;
+  }
+}
+
+export function sightMeshes(wanted) {
+  const out = [];
+  for (const b of wanted.beats || []) if (b.officer && b.officer.mesh) out.push(b.officer.mesh);
+  return out;
 }
 
 export function clearFoot(wanted) {
@@ -309,14 +437,19 @@ function settle(wanted, player, city, from) {
   const copClose = (wanted.cops || []).some((c) => c.officer && Math.hypot(c.officer.x - player.x, c.officer.z - player.z) < 7);
   const kind = from === 'thug' && !copClose ? 'wasted' : 'busted';
   const since = (wanted.downClock || 0) - (wanted.lastDownAt == null ? -999 : wanted.lastDownAt);
-  const raw = kind === 'busted' ? 120 + stars * 40 : 80 + stars * 20;
+  let raw = kind === 'busted' ? 120 + stars * 40 : 80 + stars * 20;
+  if (stars <= 0 && kind === 'busted' && career.state && career.state.role === 'criminal') raw = Math.round(raw * 1.25);
   const money = career.state ? career.state.money : 0;
   const fee = since < CHAIN ? 0 : Math.min(FEE_CAP, raw, money);
   if (fee > 0) career.addMoney(-fee);
   const spot = kind === 'wasted' && city.hospital ? city.hospital : city.spawn;
   // Drop the chase without paying the escape bounty. Dying is not a payday.
   wanted.peak = 0;
-  wanted.shownBounty = 0;
+  if (kind === 'busted') {
+    wanted.purse = 0;
+    wanted.shownBounty = 0;
+    if (career.state && career.state.wanted) career.state.wanted.bounty = 0;
+  } else wanted.shownBounty = wanted.bounty ? wanted.bounty() : 0;
   wanted.heat = 0;
   wanted.stars = 0;
   wanted.bustT = 0;

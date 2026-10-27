@@ -240,7 +240,11 @@ RL.Parked = (function () {
         c.dmg += dmg * 1.4;
         if (RL.Drive && RL.Drive.applyDamage) RL.Drive.applyDamage(p, dmg);
         const destroyed = c.dmg >= c.hp;
-        if (RL.Wanted) RL.Wanted.report('traffic', { speed: sp, suspect: false, destroyed: destroyed });
+        if (RL.Wanted) {
+          RL.Wanted.report('traffic', { speed: sp, suspect: false, destroyed: destroyed });
+          if (destroyed) RL.Wanted.addBounty('wreck');
+          else if (sp >= 90) RL.Wanted.addBounty('ram');
+        }
         if (destroyed) wreck(c);
       }
     }

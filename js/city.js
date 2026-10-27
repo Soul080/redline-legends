@@ -107,6 +107,7 @@ RL.City = (function () {
       }
     });
   }
+  function due(n) { return (RL.Roles && RL.Roles.bill) ? RL.Roles.bill(n) : n; }
   function open(id) {
     if (id === 'customs' && RL.Extras) { RL.Extras.showCustoms(); return true; }
     if (id === 'hq' && RL.Roles) { RL.Roles.showHQ(); return true; }
@@ -116,11 +117,13 @@ RL.City = (function () {
     if (id === 'vista' && RL.Photo) { RL.Photo.enter(); return true; }
     if (id === 'hospital') {
       const hp = RL.Foot ? Math.round(RL.Foot.playerHp()) : 100;
-      RL.UI.open({ title: 'City Hospital', render: () => '<p>A bright cartoon clinic. Bandages, stickers, and a lollipop. $40 tops your HP back up.</p><p class="small">HP ' + hp + '</p><div class="row"><button class="primary" data-act="heal"' + (RL.Game.state.money < 40 || hp >= 100 ? ' disabled' : '') + '>Heal ($40)</button></div>', acts: { heal: () => {
+      const cost = due(40);
+      RL.UI.open({ title: 'City Hospital', render: () => '<p>A bright cartoon clinic. Bandages, stickers, and a lollipop. $' + cost + ' tops your HP back up.</p><p class="small">HP ' + hp + '</p><div class="row"><button class="primary" data-act="heal"' + (RL.Game.state.money < cost || hp >= 100 ? 'disabled' : '') + '>Heal ($' + cost + ')</button></div>', acts: { heal: () => {
         const s = RL.Game.state;
         const cur = RL.Foot ? RL.Foot.playerHp() : 100;
-        if (s.money < 40 || cur >= 100) return;
-        RL.Game.addMoney(-40);
+        const bill = due(40);
+        if (s.money < bill || cur >= 100) return;
+        RL.Game.addMoney(-bill);
         if (RL.Hub && RL.Hub.player) RL.Hub.player.hp = 100;
         if (s.hub) s.hub.hp = 100;
         RL.Game.save();
@@ -130,15 +133,19 @@ RL.City = (function () {
       return true;
     }
     if (id === 'gas') {
-      RL.UI.open({ title: '⛽ Nitro Fuel', render: () => '<p>High-test and a hose. Patch 15% damage for $120.</p><div class="row"><button data-act="fix">Patch</button></div>', acts: { fix: () => {
-        const car = RL.Game.currentCar(); if (RL.Game.state.money < 120 || car.damage < 1) return;
-        RL.Game.addMoney(-120); car.damage = RL.clamp(car.damage - 15, 0, 100); RL.Game.save(); RL.UI.toast('Patched', '#7dff5a');
-      } } });
+      const fuel = due(120);
+      RL.UI.open({ title: '⛽ Nitro Fuel', render: () => (RL.Jobs ? RL.Jobs.card('gas') : '') + '<p class="rob-line">High-test and a hose. Patch 15% damage for $' + fuel + '.</p><div class="row"><button data-act="fix">Patch</button></div>', acts: {
+        fix: () => {
+          const car = RL.Game.currentCar(); const bill = due(120); if (RL.Game.state.money < bill || car.damage < 1) return;
+          RL.Game.addMoney(-bill); car.damage = RL.clamp(car.damage - 15, 0, 100); RL.Game.save(); RL.UI.toast('Patched', '#7dff5a');
+        },
+        robbery: () => { if (RL.Jobs) RL.Jobs.rob('gas'); }
+      } });
       return true;
     }
-    if (id === 'dealer') { RL.UI.showShop('cars'); return true; }
-    if (id === 'chandler') { RL.UI.showShop('parts'); return true; }
-    if (id === 'scrap') { RL.UI.showShop('sell'); return true; }
+    if (id === 'dealer') { RL.UI.showShop('cars', 'dealer'); return true; }
+    if (id === 'chandler') { RL.UI.showShop('parts', 'chandler'); return true; }
+    if (id === 'scrap') { RL.UI.showShop('sell', 'scrap'); return true; }
     if (id === 'precinct') { showPrecinct(); return true; }
     if (id === 'chop' || id === 'safehouse') { showHideout(id); return true; }
     if (id === 'clinic') { showClinic(); return true; }
@@ -197,11 +204,13 @@ RL.City = (function () {
         const pts = Math.min(10, car.damage || 0);
         const full = RL.Game.repairCost(car);
         const cost = pts > 0 ? Math.max(25, Math.round(full * (pts / Math.max(1, car.damage)))) : 0;
-        return '<p>Coffee, a rumor, and a wrench that is not a garage. They will knock ' + (pts || 0) + ' points of damage off at the same rate the garage charges.</p>' +
-          '<p class="small">The arch crew still swears the Phantom ate here the night the clock stopped.</p>' +
+        return (RL.Jobs ? RL.Jobs.card('diner') : '') + '<p class="rob-line">Coffee, a rumor, and a wrench that is not a garage. They will knock ' + (pts || 0) + ' points of damage off at the same rate the garage charges.</p>' +
+          '<p class="rob-line">The arch crew still swears the Phantom ate here the night the clock stopped.</p>' +
           '<div class="row"><button data-act="fix"' + (pts < 1 || RL.Game.state.money < cost ? ' disabled' : '') + '>Patch (' + RL.fmtMoney(cost) + ')</button></div>';
       },
-      acts: { fix: () => {
+      acts: {
+        robbery: () => { if (RL.Jobs) RL.Jobs.rob('diner'); },
+        fix: () => {
         const car = RL.Game.currentCar();
         const pts = Math.min(10, car.damage || 0);
         const full = RL.Game.repairCost(car);
@@ -259,14 +268,16 @@ RL.City = (function () {
         const w = RL.Wanted && RL.Wanted.W();
         const stars = w ? w.stars : 0;
         const heat = w ? w.heat : 0;
+        const paper = due(200);
         if (stars > 0) return '<p>The lot is closed while you are lit up. Lose the cars, then the clerk will talk about paperwork.</p>';
-        if (heat > 0) return '<p>Leftover heat with no units on you. The clerk will stamp it dead for $200. A live chase is not for sale.</p><div class="row"><button class="primary" data-act="pay"' + (RL.Game.state.money < 200 ? ' disabled' : '') + '>Pay $200</button></div>';
+        if (heat > 0) return '<p>Leftover heat with no units on you. The clerk will stamp it dead for $' + paper + '. A live chase is not for sale.</p><div class="row"><button class="primary" data-act="pay"' + (RL.Game.state.money < paper ? ' disabled' : '') + '>Pay $' + paper + '</button></div>';
         return '<p>Your sheet is clean. The rows outside are other people\'s mistakes.</p>';
       },
       acts: { pay: () => {
         const w = RL.Wanted && RL.Wanted.W();
-        if (!w || w.stars > 0 || w.heat <= 0 || RL.Game.state.money < 200) { RL.Audio.play('error'); return; }
-        RL.Game.addMoney(-200);
+        const paper = due(200);
+        if (!w || w.stars > 0 || w.heat <= 0 || RL.Game.state.money < paper) { RL.Audio.play('error'); return; }
+        RL.Game.addMoney(-paper);
         if (RL.Wanted.clearHeat) RL.Wanted.clearHeat();
         RL.Game.save();
         RL.UI.toast('Paperwork filed', '#7dff5a');
@@ -334,6 +345,7 @@ RL.City = (function () {
     ctx.fillStyle = 'rgba(8,6,24,0.85)'; ctx.fillRect(p.x - w / 2, p.y - 52, w, 22);
     ctx.strokeStyle = pr.color; ctx.strokeRect(p.x - w / 2, p.y - 52, w, 22);
     ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff';
     ctx.fillText(pr.text, p.x, p.y - 41);
   }
   const HUB_LEGEND = { garage: 'shop', office: 'race', shop: 'shop', bar: 'story', training: 'race' };

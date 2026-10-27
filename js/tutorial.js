@@ -19,7 +19,7 @@ RL.Tutorial = (function () {
       test: (c) => c.sawRace },
     { id: 'star', title: 'Wanted', text: 'Get at least one wanted star. Hold a speed well over the limit, or stack real hits. A nudge will not do it.', target: '',
       test: (c) => c.stars >= 1 },
-    { id: 'escape', title: 'Escape', text: 'Lose the police. Break line of sight and drive clean until the star drops and the bounty pays. A bust does not count.', target: '',
+    { id: 'escape', title: 'Escape', text: 'Lose the police. Break line of sight and drive clean until the star drops. The bounty stays until you are busted. A bust does not count as an escape.', target: '',
       test: (c) => c.evasions > c.evadeAt },
     { id: 'steal', title: 'Steal', text: 'Walk up to a traffic car or a parked one. Traffic stops for you. Press F, E, or C, or the big ENTER button. [F] Steal floats on it. A parked break-in is quieter, and only if someone sees you.', target: '#touch .t-enter',
       test: (c) => c.joyride },

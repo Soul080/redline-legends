@@ -113,7 +113,14 @@ RL.Hub = (function () {
       near = null;
       for (const b of BUILDINGS) if (Math.hypot(P.x - b.door.x, P.y - (b.door.y + 16)) < 52) near = b;
     }
-    if (!P.wrecked && (RL.Input.hit('enter') || RL.Input.hit('steal')) && RL.Drive && RL.Drive.tryEnter) RL.Drive.tryEnter();
+    if (!P.wrecked && RL.Input.hit('enter') && RL.Drive && RL.Drive.tryEnter) RL.Drive.tryEnter();
+    if (!P.wrecked && RL.Input.hit('steal')) {
+      const slow = Math.abs(P.speed || 0) < 90;
+      if (near && RL.Jobs && RL.Jobs.isShop(near.id)) {
+        if (slow) RL.Jobs.rob(near.id);
+        else RL.UI.toast('Slow down to rob ' + near.name, '#fff');
+      } else if (RL.Drive && RL.Drive.tryEnter) RL.Drive.tryEnter();
+    }
     if (!P.wrecked && RL.Input.hit('action')) {
       const slow = Math.abs(P.speed || 0) < 90;
       if (RL.Jobs && RL.Jobs.tryAction()) { /* delivery / bust pin */ }
@@ -131,7 +138,7 @@ RL.Hub = (function () {
   }
   function openBuilding(id) {
     RL.Audio.play('confirm');
-    const map = { garage: RL.UI.showGarage, office: RL.UI.showOffice, shop: RL.UI.showShop, bar: RL.UI.showBar, training: RL.UI.showTraining };
+    const map = { garage: RL.UI.showGarage, office: RL.UI.showOffice, shop: () => RL.UI.showShop(undefined, 'shop'), bar: RL.UI.showBar, training: RL.UI.showTraining };
     if (map[id]) map[id]();
     else if (RL.City) RL.City.open(id);
   }
@@ -199,7 +206,9 @@ RL.Hub = (function () {
     if (!drewCar && P.inCar === false) drawWalker(ctx);
     if (!photo && RL.Drive && RL.Drive.drawCue) RL.Drive.drawCue(ctx);
     if (near && !photo) {
-      ctx.font = 'bold 15px sans-serif'; const txt = 'E / Enter: ' + near.name;
+      ctx.font = 'bold 15px sans-serif';
+      const moving = Math.abs(P.speed || 0) >= 90;
+      const txt = (RL.Jobs && RL.Jobs.isShop(near.id)) ? RL.Jobs.promptLine(near.id, moving) : ('E: ' + near.name);
       const w = ctx.measureText(txt).width + 20;
       ctx.fillStyle = 'rgba(8,6,24,0.85)'; ctx.fillRect(P.x - w / 2, P.y - 56, w, 26);
       ctx.strokeStyle = near.color; ctx.strokeRect(P.x - w / 2, P.y - 56, w, 26);

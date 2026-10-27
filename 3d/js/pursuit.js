@@ -20,13 +20,16 @@ export const COUPE = {
 };
 
 export function countFor(stars) {
-  const n = Math.max(0, Math.min(5, stars | 0));
-  return COUNT[n];
+  const n = Math.max(0, stars | 0);
+  if (n <= 0) return 0;
+  if (n <= 5) return COUNT[n];
+  return Math.min(8, COUNT[5] + (n >= 9 ? 1 : 0));
 }
 
 export function profile(stars) {
-  const n = Math.max(1, Math.min(5, stars | 0));
-  return PROFILES[n];
+  const n = Math.max(1, stars | 0);
+  if (n <= 5) return PROFILES[n];
+  return PROFILES[5];
 }
 
 function angDiff(a, b) {

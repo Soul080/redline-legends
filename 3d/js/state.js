@@ -41,7 +41,7 @@ export const career = {
       role: 'neutral', roleXp: { neutral: 0, criminal: 0, police: 0 }, roleSwitchAt: 0, roleCooldownUntil: 0, iaStrikes: 0, impound: 0, lookBackup: null,
       roles: {}, found: {}, visited: { downtown: true }, clock: 10 * 60,
       customTracks: [], multiplayer: { name: '', room: '', status: 'offline' }, difficulty: 'normal',
-      wanted: { heat: 0, stars: 0, peak: 0 },
+      wanted: { heat: 0, stars: 0, peak: 0, bounty: 0 },
       phone: { threads: {}, seen: {}, memory: {}, open: 'unknown' },
       dragPrefs: { half: false, stake: true, pink: false }, dragStake: null,
       escape: { coins: 0, owned: ['alley'], selected: 'alley', best: {}, daily: { date: '', paid: 0 } },
@@ -183,11 +183,13 @@ export const career = {
     if (!s.progress || typeof s.progress !== 'object' || Array.isArray(s.progress)) s.progress = {};
     if (!s.progress[s.league]) s.progress[s.league] = { races: [false, false, false], boss: false };
     if (!s.quests || typeof s.quests !== 'object') s.quests = { active: ['m1'], done: [] };
-    if (!s.wanted || typeof s.wanted !== 'object' || Array.isArray(s.wanted)) s.wanted = { heat: 0, stars: 0, peak: 0 };
+    if (!s.wanted || typeof s.wanted !== 'object' || Array.isArray(s.wanted)) s.wanted = { heat: 0, stars: 0, peak: 0, bounty: 0 };
     else {
       if (s.wanted.heat == null) s.wanted.heat = 0;
       if (s.wanted.stars == null) s.wanted.stars = 0;
       if (s.wanted.peak == null) s.wanted.peak = 0;
+      if (!Number.isFinite(Number(s.wanted.bounty)) || Number(s.wanted.bounty) < 0) s.wanted.bounty = 0;
+      else s.wanted.bounty = Math.min(5000, Math.round(Number(s.wanted.bounty)));
     }
     if (!s.found || typeof s.found !== 'object' || Array.isArray(s.found)) s.found = {};
     if (!s.visited || typeof s.visited !== 'object' || Array.isArray(s.visited)) s.visited = { downtown: true };
@@ -231,8 +233,8 @@ export const career = {
     }
   },
 
-  /* 2D stores the cooldown end. 3D stores the moment of the switch.
-     Keep whichever end is still in the future so a view change cannot skip it. */
+  /* roleCooldownUntil is the real end, including a 5 minute badge lock.
+     roleSwitchAt stays 60s earlier so the 3D anchor matches that end. */
   _reconcileRole(s) {
     const now = Date.now();
     const until = Number(s.roleCooldownUntil) || 0;
@@ -265,6 +267,27 @@ export const career = {
   priceMult() {
     return (this.hasPerk('haggler') ? 0.85 : 1) * (1 - clamp(this.state.respect, 0, 30) * 0.003);
   },
+  /* Known-face tax. Kingpin rank (320 criminal XP) launders it off. */
+  crimeTax() {
+    if (!this.state || this.state.role !== 'criminal') return 1;
+    const xp = this.state.roleXp && this.state.roleXp.criminal || 0;
+    return xp >= 320 ? 1 : 1.12;
+  },
+  crimeCut() {
+    if (!this.state || this.state.role !== 'criminal') return 1;
+    const xp = this.state.roleXp && this.state.roleXp.criminal || 0;
+    return xp >= 320 ? 1 : 0.85;
+  },
+  bill(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v) || v <= 0) return 0;
+    return Math.max(0, Math.round(v * this.crimeTax()));
+  },
+  streetPrice(base) {
+    const n = Number(base);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.max(0, Math.round(n * this.priceMult() * this.crimeTax()));
+  },
   carStats(car) {
     const def = this.carDef(car.id);
     const out = Object.assign({}, def.s);
@@ -287,10 +310,10 @@ export const career = {
     return (p && p.color) || this.carDef(car.id).color;
   },
   repairCost(car) {
-    return Math.round(car.damage * (8 + this.carDef(car.id).price / 1500) * (this.hasPerk('mechanic') ? 0.65 : 1));
+    return Math.round(car.damage * (8 + this.carDef(car.id).price / 1500) * (this.hasPerk('mechanic') ? 0.65 : 1) * this.crimeTax());
   },
   isEquipped(id) { return this.state.cars.some((c) => Object.values(c.parts).includes(id)); },
-  sellPrice(p) { return Math.round(this.partValue(p) * 0.45 * (this.hasPerk('haggler') ? 1.25 : 1)); },
+  sellPrice(p) { return Math.round(this.partValue(p) * 0.45 * (this.hasPerk('haggler') ? 1.25 : 1) * this.crimeCut()); },
 
   addMoney(n) {
     this.state.money = Math.max(0, Math.round(this.state.money + n));

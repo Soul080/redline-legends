@@ -14,9 +14,21 @@ RL.Foot = (function () {
   const COOL_MELEE = 1.05;
   const COOL_SHOT = 1.35;
   const FACE = 0.6;
+  /* On-sight fire for a clean criminal. Short, telegraphed, and aimed at the
+     spot you were standing. Walking speed is 190 px/s, so the dodge gap is
+     a step, not a sprint. Officers hold a post and do not chase. */
+  const SIGHT_RANGE = 100;
+  const SIGHT_WIND = 0.96;
+  const SIGHT_COOL = 2.2;
+  const SIGHT_DMG = 4;
+  const SIGHT_FACE = 0.42;
+  const SIGHT_DODGE = 22;
+  const SIGHT_POCKET = 64;
 
   let units = [];
+  let beats = [];
   let puffs = [];
+  let sightTold = false;
 
   function clamp(v, a, b) {
     v = Number(v);
@@ -84,6 +96,125 @@ RL.Foot = (function () {
     const dist = Math.hypot(target.x - u.x, target.y - u.y);
     if (dist > range) return false;
     return Math.abs(angleDiff(angleTo(u.x, u.y, target.x, target.y), u.h || 0)) < FACE;
+  }
+  function sightActive(role, stars) {
+    return role === 'criminal' && (stars | 0) <= 0;
+  }
+  function sightClear(u, target, blocked) {
+    if (!blocked) return true;
+    const dist = Math.hypot(target.x - u.x, target.y - u.y);
+    const steps = Math.max(2, Math.floor(dist / 22));
+    for (let i = 1; i < steps; i++) {
+      const x = u.x + (target.x - u.x) * (i / steps);
+      const y = u.y + (target.y - u.y) * (i / steps);
+      if (blocked(x, y)) return false;
+    }
+    return true;
+  }
+  /* One beat-officer step. Heading locks when the flash starts. A hit needs
+     the player still near the aim point, still in the cone, still in range,
+     and still in line of sight. ceasefire (the station door) never connects. */
+  function stepSight(u, target, dt, blocked) {
+    const out = { hit: false, missed: false, dmg: 0, aiming: false };
+    if (!u || !target) return out;
+    if (u.cool > 0) u.cool -= dt;
+    const dist = Math.hypot(target.x - u.x, target.y - u.y);
+    const aim = angleTo(u.x, u.y, target.x, target.y);
+    if (!(u.wind > 0)) {
+      const dh = angleDiff(aim, u.h || 0);
+      u.h = (u.h || 0) + clamp(dh, -2.4 * dt, 2.4 * dt);
+    }
+    if (u.wind > 0) {
+      u.wind -= dt;
+      out.aiming = true;
+      if (u.wind <= 0) {
+        u.wind = 0;
+        u.mode = null;
+        u.cool = SIGHT_COOL;
+        const moved = Math.hypot(target.x - (u.aimX || 0), target.y - (u.aimY || 0));
+        const now = Math.hypot(target.x - u.x, target.y - u.y);
+        const facing = Math.abs(angleDiff(angleTo(u.x, u.y, target.x, target.y), u.h || 0)) < SIGHT_FACE;
+        const losOk = sightClear(u, target, blocked);
+        if (!target.ceasefire && now <= SIGHT_RANGE && facing && moved <= SIGHT_DODGE && losOk) {
+          out.hit = true;
+          out.dmg = SIGHT_DMG;
+        } else out.missed = true;
+      }
+      return out;
+    }
+    if (u.cool > 0 || target.ceasefire || dist > SIGHT_RANGE) return out;
+    if (!sightClear(u, target, blocked)) return out;
+    if (Math.abs(angleDiff(aim, u.h || 0)) > 0.35) return out;
+    u.mode = 'shot';
+    u.wind = SIGHT_WIND;
+    u.h = aim;
+    u.aimX = target.x;
+    u.aimY = target.y;
+    out.aiming = true;
+    return out;
+  }
+  function policePosts() {
+    const list = (RL.CityMap && RL.CityMap.buildings) || [];
+    const out = [];
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      if (!b || b.legend !== 'police' || !b.door) continue;
+      let x = b.door.x - 78, y = b.door.y + 42;
+      if (RL.Hub && RL.Hub.blocked && RL.Hub.blocked(x, y, 10)) x = b.door.x + 78;
+      if (RL.Hub && RL.Hub.blocked && RL.Hub.blocked(x, y, 10)) continue;
+      out.push({ id: b.id, x: x, y: y });
+    }
+    return out;
+  }
+  function ensureBeats() {
+    const posts = policePosts();
+    const keep = [];
+    for (let i = 0; i < posts.length; i++) {
+      const post = posts[i];
+      let u = null;
+      for (let k = 0; k < beats.length; k++) if (beats[k].id === post.id) u = beats[k];
+      if (!u) {
+        u = {
+          id: post.id, kind: 'beat', x: post.x, y: post.y, h: -Math.PI / 2,
+          wind: 0, cool: 0.45, mode: null, aimX: post.x, aimY: post.y, flash: 0
+        };
+      } else {
+        u.x = post.x; u.y = post.y;
+      }
+      keep.push(u);
+    }
+    beats = keep;
+  }
+  function nearPoliceDoor(x, y) {
+    const list = (RL.CityMap && RL.CityMap.buildings) || [];
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      if (!b || b.legend !== 'police' || !b.door) continue;
+      if (Math.hypot(b.door.x - x, b.door.y - y) < SIGHT_POCKET) return true;
+    }
+    return false;
+  }
+  function updateSight(dt, p) {
+    if (!p || p.downed) return;
+    ensureBeats();
+    const ceasefire = nearPoliceDoor(p.x, p.y);
+    const blocked = (RL.Hub && RL.Hub.blocked) ? (x, y) => RL.Hub.blocked(x, y, 4) : null;
+    for (let i = 0; i < beats.length; i++) {
+      const u = beats[i];
+      if (u.flash > 0) u.flash -= dt;
+      const res = stepSight(u, { x: p.x, y: p.y, ceasefire: ceasefire || p.invuln > 0 }, dt, blocked);
+      if (res.aiming && !sightTold) {
+        sightTold = true;
+        try { RL.UI.toast('Police have a shot. Move.', '#fff'); } catch (e) { }
+      }
+      if (res.hit) {
+        u.flash = 0.25;
+        puffs.push({ x: p.x, y: p.y - 16, life: 0.32 });
+        try { RL.Audio.play('bump', 0.2); } catch (e) { }
+        hurt(p, res.dmg, 'police');
+      }
+    }
+    if (p.downed) p.downed = false;
   }
 
   /* One chase step. While react or a windup is running the officer does not
@@ -226,11 +357,14 @@ RL.Foot = (function () {
     }
     const s = RL.Game.state;
     const n = (s.wanted && s.wanted.stars) || 0;
-    const fee = feeFor(n, s.money);
+    let fee = feeFor(n, s.money);
+    const mod = RL.Roles && RL.Roles.fineMod ? RL.Roles.fineMod() : 1;
+    if (mod !== 1) fee = Math.min(s.money, FEE_CAP, Math.round(feeFor(n, 1e15) * mod));
     if (RL.Drive && RL.Drive.dropJoyride) RL.Drive.dropJoyride({ quiet: true });
     RL.Game.addMoney(-fee);
     if (s.job && (s.job.type === 'heist' || s.job.type === 'smuggle')) s.job = null;
     if (RL.Wanted && RL.Wanted.clearHeat) RL.Wanted.clearHeat();
+    if (kind === 'police' && RL.Wanted && RL.Wanted.clearBounty) RL.Wanted.clearBounty();
     const bed = nearestBed(p.x, p.y);
     let x = bed.x, y = bed.y + (bed.pad || 0);
     if (RL.Hub && RL.Hub.blocked && RL.Hub.blocked(x, y, 15)) y += 20;
@@ -264,6 +398,16 @@ RL.Foot = (function () {
   function update(dt, p, cops, stars) {
     if (!p) return;
     puffs = puffs.filter((f) => (f.life -= dt) > 0);
+    const role = (RL.Roles && RL.Roles.current) ? RL.Roles.current() : 'neutral';
+    if (sightActive(role, stars)) {
+      if (units.length) {
+        units = [];
+        (cops || []).forEach((c) => { if (c) c.onFoot = false; });
+      }
+      updateSight(dt, p);
+      return;
+    }
+    if (beats.length) beats = [];
     if (!(stars > 0) || drivingOff(p)) {
       if (drivingOff(p)) p._pin = 0;
       reset(cops);
@@ -311,7 +455,7 @@ RL.Foot = (function () {
     ctx.fill();
   }
   function draw(ctx) {
-    units.forEach((u) => {
+    units.concat(beats).forEach((u) => {
       const bob = Math.sin((u.x + u.y) * 0.08) * 1.4;
       ctx.save();
       ctx.translate(u.x, u.y);
@@ -331,10 +475,13 @@ RL.Foot = (function () {
         ctx.fillRect(-4, -21 + bob, 8, 4);
       }
       if (u.wind > 0) {
-        ctx.fillStyle = '#ffe03b';
         ctx.font = 'bold 16px Trebuchet MS, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#000';
+        ctx.strokeText('!', 0, -30);
+        ctx.fillStyle = '#fff';
         ctx.fillText('!', 0, -30);
         ctx.strokeStyle = 'rgba(255,224,59,0.9)';
         ctx.lineWidth = 2;
@@ -376,7 +523,8 @@ RL.Foot = (function () {
 
   return {
     countFor, thugCount, shouldDismount, drivingOff, reactDelay, footSpeed,
-    stepUnit, feeFor, downLabel, normalizeHp, playerHp, FEE_CAP,
+    stepUnit, stepSight, sightActive, feeFor, downLabel, normalizeHp, playerHp, FEE_CAP,
+    SIGHT_RANGE, SIGHT_WIND, SIGHT_COOL, SIGHT_DMG, SIGHT_DODGE, SIGHT_POCKET,
     update, draw, reset, active, hurt, goDown, debugDown, nearestBed,
     units: () => units.slice()
   };

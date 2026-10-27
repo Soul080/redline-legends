@@ -474,7 +474,7 @@
         customTracks: [],
         multiplayer: { name: "", room: "", status: "offline" },
         difficulty: "normal",
-        wanted: { heat: 0, stars: 0, peak: 0 },
+        wanted: { heat: 0, stars: 0, peak: 0, bounty: 0 },
         phone: { threads: {}, seen: {}, memory: {}, open: "unknown" },
         dragPrefs: { half: false, stake: true, pink: false },
         dragStake: null,
@@ -645,11 +645,13 @@
       if (!s.progress || typeof s.progress !== "object" || Array.isArray(s.progress)) s.progress = {};
       if (!s.progress[s.league]) s.progress[s.league] = { races: [false, false, false], boss: false };
       if (!s.quests || typeof s.quests !== "object") s.quests = { active: ["m1"], done: [] };
-      if (!s.wanted || typeof s.wanted !== "object" || Array.isArray(s.wanted)) s.wanted = { heat: 0, stars: 0, peak: 0 };
+      if (!s.wanted || typeof s.wanted !== "object" || Array.isArray(s.wanted)) s.wanted = { heat: 0, stars: 0, peak: 0, bounty: 0 };
       else {
         if (s.wanted.heat == null) s.wanted.heat = 0;
         if (s.wanted.stars == null) s.wanted.stars = 0;
         if (s.wanted.peak == null) s.wanted.peak = 0;
+        if (!Number.isFinite(Number(s.wanted.bounty)) || Number(s.wanted.bounty) < 0) s.wanted.bounty = 0;
+        else s.wanted.bounty = Math.min(5e3, Math.round(Number(s.wanted.bounty)));
       }
       if (!s.found || typeof s.found !== "object" || Array.isArray(s.found)) s.found = {};
       if (!s.visited || typeof s.visited !== "object" || Array.isArray(s.visited)) s.visited = { downtown: true };
@@ -691,8 +693,8 @@
         else if (c.style.color) c.look.paint = c.style.color;
       }
     },
-    /* 2D stores the cooldown end. 3D stores the moment of the switch.
-       Keep whichever end is still in the future so a view change cannot skip it. */
+    /* roleCooldownUntil is the real end, including a 5 minute badge lock.
+       roleSwitchAt stays 60s earlier so the 3D anchor matches that end. */
     _reconcileRole(s) {
       const now2 = Date.now();
       const until = Number(s.roleCooldownUntil) || 0;
@@ -731,6 +733,27 @@
     priceMult() {
       return (this.hasPerk("haggler") ? 0.85 : 1) * (1 - clamp(this.state.respect, 0, 30) * 3e-3);
     },
+    /* Known-face tax. Kingpin rank (320 criminal XP) launders it off. */
+    crimeTax() {
+      if (!this.state || this.state.role !== "criminal") return 1;
+      const xp = this.state.roleXp && this.state.roleXp.criminal || 0;
+      return xp >= 320 ? 1 : 1.12;
+    },
+    crimeCut() {
+      if (!this.state || this.state.role !== "criminal") return 1;
+      const xp = this.state.roleXp && this.state.roleXp.criminal || 0;
+      return xp >= 320 ? 1 : 0.85;
+    },
+    bill(n) {
+      const v = Number(n);
+      if (!Number.isFinite(v) || v <= 0) return 0;
+      return Math.max(0, Math.round(v * this.crimeTax()));
+    },
+    streetPrice(base) {
+      const n = Number(base);
+      if (!Number.isFinite(n) || n <= 0) return 0;
+      return Math.max(0, Math.round(n * this.priceMult() * this.crimeTax()));
+    },
     carStats(car) {
       const def = this.carDef(car.id);
       const out = Object.assign({}, def.s);
@@ -755,13 +778,13 @@
       return p && p.color || this.carDef(car.id).color;
     },
     repairCost(car) {
-      return Math.round(car.damage * (8 + this.carDef(car.id).price / 1500) * (this.hasPerk("mechanic") ? 0.65 : 1));
+      return Math.round(car.damage * (8 + this.carDef(car.id).price / 1500) * (this.hasPerk("mechanic") ? 0.65 : 1) * this.crimeTax());
     },
     isEquipped(id) {
       return this.state.cars.some((c) => Object.values(c.parts).includes(id));
     },
     sellPrice(p) {
-      return Math.round(this.partValue(p) * 0.45 * (this.hasPerk("haggler") ? 1.25 : 1));
+      return Math.round(this.partValue(p) * 0.45 * (this.hasPerk("haggler") ? 1.25 : 1) * this.crimeCut());
     },
     addMoney(n) {
       this.state.money = Math.max(0, Math.round(this.state.money + n));
@@ -958,27 +981,27 @@
       if (cfg.kind === "training") s.totals.training++;
       if (cfg.kind === "drag") s.totals.drags++;
       const L = this.leagueData(cfg.league || s.league);
-      let money = 0, xp = 0, drop = null;
+      let money2 = 0, xp = 0, drop = null;
       const notes = [];
       const pos = res.position, n = res.cars || 1;
       const mult = L.prize;
       if (cfg.kind === "race" || cfg.kind === "boss" || cfg.kind === "elimination") {
         const share = [1, 0.6, 0.4, 0.25, 0.15, 0.1][pos - 1] || 0.1;
-        money = mult * share * (cfg.kind === "boss" ? 2.5 : cfg.kind === "elimination" ? 1.2 : 1);
+        money2 = mult * share * (cfg.kind === "boss" ? 2.5 : cfg.kind === "elimination" ? 1.2 : 1);
         xp = (60 + L.id * 40) * (1.3 - pos * 0.15) * (cfg.kind === "boss" ? 2 : 1);
       } else if (cfg.kind === "training") {
         xp = 40 + (res.cleanLaps || 0) * 25 + Math.min(150, (res.drift || 0) / 40);
       } else if (cfg.kind === "drag") {
         const won = pos === 1 && !res.foul;
-        money = mult * (won ? 0.85 : 0.18);
+        money2 = mult * (won ? 0.85 : 0.18);
         xp = (70 + L.id * 35) * (won ? 1.35 : 0.4);
-        money += (res.perfectShifts || 0) * 50;
+        money2 += (res.perfectShifts || 0) * 50;
         if (res.foul) notes.push("Red light \u2014 the win doesn't count.");
         if ((res.perfectShifts || 0) >= 3) notes.push("Clean shifts. The gearbox noticed.");
       } else if (cfg.kind === "custom") {
         const diff = cfg.aiDiff || 1;
         const won = pos === 1;
-        money = (90 + (cfg.aiCount || 0) * 45) * diff * (won ? 1 : 0.22);
+        money2 = (90 + (cfg.aiCount || 0) * 45) * diff * (won ? 1 : 0.22);
         xp = (36 + (cfg.laps || 1) * 14) * (won ? 1.25 : 0.4);
         if (won) {
           s.totals.customWins = (s.totals.customWins || 0) + 1;
@@ -986,7 +1009,7 @@
         }
       } else if (cfg.kind === "street") {
         const won = pos === 1;
-        money = 220 * L.id * (cfg.reward || 1) * (won ? 1 : 0.25);
+        money2 = 220 * L.id * (cfg.reward || 1) * (won ? 1 : 0.25);
         xp = (55 + L.id * 24) * (won ? 1.25 : 0.4);
         if (won) {
           s.respect += 2;
@@ -995,7 +1018,7 @@
         }
       } else {
         const won = pos === 1;
-        money = mult * (won ? 0.7 : 0.15);
+        money2 = mult * (won ? 0.7 : 0.15);
         xp = (50 + L.id * 30) * (won ? 1.4 : 0.5);
       }
       xp += Math.min(200, (res.drift || 0) / (this.hasPerk("zen_drift") ? 15 : 25));
@@ -1006,7 +1029,7 @@
           const steps = [0, 40, 110, 200, 320];
           let ri = 0;
           for (let k = 0; k < steps.length; k++) if (s.roleXp.neutral >= steps[k]) ri = k;
-          money *= 1 + ri * 0.05;
+          money2 *= 1 + ri * 0.05;
         }
       }
       if (cfg.kind !== "training" && Math.random() < (pos === 1 ? 0.85 : pos <= 3 ? 0.45 : 0.15)) {
@@ -1046,9 +1069,9 @@
         s.records.drag = res.totalTime;
         notes.push("New quarter-mile ET.");
       }
-      money = Math.round(money);
+      money2 = Math.round(money2);
       xp = Math.round(Math.max(0, xp));
-      this.addMoney(money);
+      this.addMoney(money2);
       this.addXP(xp);
       this.event("raceEnd", {
         kind: cfg.kind,
@@ -1064,7 +1087,7 @@
         perfectShifts: res.perfectShifts || 0
       });
       this.save();
-      return { res, money, xp, drop, notes, repair: this.repairCost(car) };
+      return { res, money: money2, xp, drop, notes, repair: this.repairCost(car) };
     },
     loadGhost(cfg) {
       try {
@@ -1116,7 +1139,7 @@
     drift: "Drift (race) / Shift (drag)",
     nitro: "Nitro (race) / Shift (drag)",
     action: "Interact",
-    steal: "Steal a stopped car",
+    steal: "Steal a stopped car / rob a shop",
     pause: "Pause / Menu",
     photo: "Photo mode",
     reset: "Reset if stuck",
@@ -29334,6 +29357,75 @@ void main() {
     }
   };
 
+  // js/heat.js
+  var STAR_AT = [0, 72, 160, 270, 410, 580];
+  var HEAT_MAX = 1e6;
+  var HIDE_SEC = [0, 90, 120, 150, 180, 240];
+  function starThreshold(n) {
+    const k = Math.max(0, n | 0);
+    if (k <= 5) return STAR_AT[k] || 0;
+    let h = STAR_AT[5];
+    let gap = STAR_AT[5] - STAR_AT[4];
+    for (let i = 6; i <= k; i++) {
+      gap += 40;
+      h += gap;
+    }
+    return h;
+  }
+  function hideSeconds(stars) {
+    const n = Math.max(0, stars | 0);
+    if (n <= 5) return HIDE_SEC[n] || 0;
+    return HIDE_SEC[5] + (n - 5) * 45;
+  }
+  function formatCooldown(sec) {
+    const s = Math.max(0, Math.ceil(Number(sec) || 0));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return m + ":" + (r < 10 ? "0" : "") + r;
+  }
+  function starsOf(heat) {
+    const h = Number(heat) || 0;
+    if (h < STAR_AT[1]) return 0;
+    let s = 0;
+    for (let i = 1; i < 80; i++) {
+      if (h >= starThreshold(i)) s = i;
+      else break;
+    }
+    return s;
+  }
+  var BOUNTY_CAP = 1e5;
+  var CRIME = { pedestrian: 75, ram: 50, wreck: 150 };
+  function starPay(n, role) {
+    const k = Math.max(1, Math.round(Number(n) || 0));
+    const base = 80 + 60 * k;
+    if (role === "criminal") return Math.round(base * 1.45);
+    return base;
+  }
+  function starLabel(n) {
+    const s = Math.max(0, n | 0);
+    if (s <= 0) return "\u2606\u2606\u2606\u2606\u2606";
+    if (s <= 5) return "\u2605".repeat(s) + "\u2606".repeat(5 - s);
+    return "\u2605\u2605\u2605\u2605\u2605 x" + s;
+  }
+  function crimePay(kind) {
+    return CRIME[kind] || 0;
+  }
+
+  // js/sight.js
+  var SIGHT = {
+    range: 11,
+    wind: 0.96,
+    cool: 2.2,
+    dmg: 8,
+    dodge: 1.55
+  };
+  function sightResult(moved, dist, los, ceasefire) {
+    if (ceasefire || !los) return "safe";
+    if (!(dist >= 0) || dist > SIGHT.range) return "safe";
+    if (moved > SIGHT.dodge) return "miss";
+    return "hit";
+  }
+
   // js/foot.js
   var FEE_CAP = 380;
   var CHAIN = 12;
@@ -29425,6 +29517,132 @@ void main() {
       x: player.x + Math.cos(ang) * dist,
       z: player.z + Math.sin(ang) * dist
     };
+  }
+  function clearSight(wanted2) {
+    for (const b of wanted2.beats || []) releaseBeat(b);
+    wanted2.beats = [];
+    wanted2.sightTold = false;
+  }
+  function releaseBeat(b) {
+    if (!b || !b.officer) return;
+    gfx.world.remove(b.officer.mesh);
+    disposePerson(b.officer.mesh);
+    b.officer = null;
+  }
+  function policePost(city) {
+    const poi = city && city.pois && city.pois.find((p) => p.id === "police");
+    if (!poi) return null;
+    return {
+      x: poi.x - 5,
+      z: poi.z - (poi.hz || 5) - 0.6
+    };
+  }
+  function updateSight(wanted2, dt, player, city) {
+    if (!wanted2 || !player || !city) return;
+    const role = career.state && career.state.role || "neutral";
+    const stars = wanted2.stars || 0;
+    if (role !== "criminal" || stars > 0 || player.invuln > 0) {
+      if (player.invuln > 0 && role === "criminal" && stars <= 0) holdSight(wanted2);
+      else clearSight(wanted2);
+      regenSight(player, dt);
+      return;
+    }
+    ensureSight(wanted2, city);
+    const cease = !!(lotAt(city, player.x, player.z) && lotAt(city, player.x, player.z).id === "police");
+    for (const b of wanted2.beats || []) tickSight(wanted2, b, dt, player, city, cease);
+    if (wanted2.pendingDown) {
+      const from = wanted2.pendingDown;
+      wanted2.pendingDown = null;
+      settle(wanted2, player, city, from);
+    }
+    regenSight(player, dt);
+  }
+  function holdSight(wanted2) {
+    for (const b of wanted2.beats || []) {
+      if (!b.officer) continue;
+      b.officer.state = "hold";
+      b.officer.cd = Math.max(b.officer.cd || 0, 0.35);
+    }
+  }
+  function ensureSight(wanted2, city) {
+    wanted2.beats = wanted2.beats || [];
+    if (wanted2.beats.length) return;
+    const post = policePost(city);
+    if (!post) return;
+    const mesh = makePerson(1851270, true);
+    gfx.world.add(mesh);
+    mesh.position.set(post.x, 0, post.z);
+    wanted2.beats.push({
+      officer: {
+        mesh,
+        x: post.x,
+        z: post.z,
+        h: 0,
+        gun: true,
+        from: "cop",
+        state: "hold",
+        timer: 0,
+        cd: 0.5,
+        aimX: post.x,
+        aimZ: post.z
+      }
+    });
+  }
+  function tickSight(wanted2, beat, dt, player, city, cease) {
+    const o = beat.officer;
+    if (!o) return;
+    o.cd = Math.max(0, (o.cd || 0) - dt);
+    const dx = player.x - o.x, dz = player.z - o.z;
+    const dist = Math.hypot(dx, dz) || 1e-4;
+    if (o.state === "aim") {
+      o.timer -= dt;
+      if (o.timer <= 0) {
+        const moved = Math.hypot(player.x - o.aimX, player.z - o.aimZ);
+        const res = sightResult(moved, dist, clearLos(city, o, player), cease);
+        if (res === "hit") {
+          hurt(wanted2, player, SIGHT.dmg, "cop");
+          if (player.hp > 0) player.hurtT = 1.3;
+        }
+        o.state = "hold";
+        o.cd = SIGHT.cool;
+      }
+      return;
+    }
+    o.h = Math.atan2(dx, dz);
+    if (o.cd > 0 || cease || dist > SIGHT.range || !clearLos(city, o, player)) return;
+    o.state = "aim";
+    o.timer = SIGHT.wind;
+    o.aimX = player.x;
+    o.aimZ = player.z;
+    if (!wanted2.sightTold) {
+      wanted2.sightTold = true;
+      wanted2.msg("Police have a shot. Move.", "#fff");
+    }
+  }
+  function regenSight(player, dt) {
+    const role = career.state && career.state.role || "neutral";
+    if (role !== "criminal") return;
+    if (!player || player.onFoot || player.hp == null || player.hp >= 100) return;
+    if ((player.hurtT || 0) > 0 || player.speed <= 6) return;
+    player.hp = Math.min(100, player.hp + 3.2 * dt);
+  }
+  function presentSight(wanted2) {
+    const beats = wanted2.beats || [];
+    const pulse = 0.35 + Math.abs(Math.sin(performance.now() / 90));
+    for (const b of beats) {
+      const o = b.officer;
+      if (!o || !o.mesh) continue;
+      o.mesh.position.set(o.x, 0, o.z);
+      o.mesh.rotation.y = o.h;
+      const wind = o.state === "aim";
+      if (o.mesh.userData.bodyMat) o.mesh.userData.bodyMat.emissiveIntensity = wind ? pulse : 0;
+      if (o.mesh.userData.arm) o.mesh.userData.arm.rotation.z = wind ? -1.15 : 0.35;
+    }
+  }
+  function sightMeshes(wanted2) {
+    const out = [];
+    for (const b of wanted2.beats || []) if (b.officer && b.officer.mesh) out.push(b.officer.mesh);
+    return out;
   }
   function clearFoot(wanted2) {
     for (const cop of wanted2.cops || []) releaseOfficer(cop);
@@ -29636,13 +29854,18 @@ void main() {
     const copClose = (wanted2.cops || []).some((c) => c.officer && Math.hypot(c.officer.x - player.x, c.officer.z - player.z) < 7);
     const kind = from === "thug" && !copClose ? "wasted" : "busted";
     const since = (wanted2.downClock || 0) - (wanted2.lastDownAt == null ? -999 : wanted2.lastDownAt);
-    const raw = kind === "busted" ? 120 + stars * 40 : 80 + stars * 20;
-    const money = career.state ? career.state.money : 0;
-    const fee = since < CHAIN ? 0 : Math.min(FEE_CAP, raw, money);
+    let raw = kind === "busted" ? 120 + stars * 40 : 80 + stars * 20;
+    if (stars <= 0 && kind === "busted" && career.state && career.state.role === "criminal") raw = Math.round(raw * 1.25);
+    const money2 = career.state ? career.state.money : 0;
+    const fee = since < CHAIN ? 0 : Math.min(FEE_CAP, raw, money2);
     if (fee > 0) career.addMoney(-fee);
     const spot = kind === "wasted" && city.hospital ? city.hospital : city.spawn;
     wanted2.peak = 0;
-    wanted2.shownBounty = 0;
+    if (kind === "busted") {
+      wanted2.purse = 0;
+      wanted2.shownBounty = 0;
+      if (career.state && career.state.wanted) career.state.wanted.bounty = 0;
+    } else wanted2.shownBounty = wanted2.bounty ? wanted2.bounty() : 0;
     wanted2.heat = 0;
     wanted2.stars = 0;
     wanted2.bustT = 0;
@@ -29790,10 +30013,12 @@ void main() {
   }
 
   // js/wanted.js
-  var HEAT_MAX = 125;
   function copTarget(stars, heat) {
     if (stars <= 0) return 0;
-    if (stars === 1) return heat >= 16 ? 2 : 1;
+    if (stars === 1) {
+      const span = Math.max(1, starThreshold(2) - starThreshold(1));
+      return heat >= starThreshold(1) + span * 0.55 ? 2 : 1;
+    }
     return Math.min(5, stars);
   }
   var COP_CAP = [0, 24, 31, 39, 48, 58];
@@ -29803,10 +30028,6 @@ void main() {
     let i = 0;
     for (let k = 0; k < steps.length; k++) if (xp >= steps[k]) i = k;
     return i;
-  }
-  function starsOf(heat) {
-    if (heat <= 1) return 0;
-    return Math.min(5, Math.ceil(heat / 25));
   }
   function losClear(city, x0, z0, x1, z1) {
     const steps = 7;
@@ -29840,13 +30061,22 @@ void main() {
     speedT: 0,
     cleanT: 0,
     overSpeed: false,
+    hiddenFor: 0,
+    coolFrom: 0,
     shownBounty: 0,
+    purse: 0,
+    crimeAt: 0,
     respawnIn: 2,
     hub: null,
     onBust: null,
     onEvade: null,
+    onPoliceWanted: null,
     bind(hub2) {
       this.hub = hub2;
+    },
+    pullBadge() {
+      if (!career.state || career.state.role !== "police" || this.stars <= 0 || !this.onPoliceWanted) return;
+      this.onPoliceWanted();
     },
     msg(text, color) {
       if (this.hub && this.hub.msgs) this.hub.msgs.push({ text, t: 2.4, color: color || "#ff3b6b" });
@@ -29863,6 +30093,9 @@ void main() {
       this.speedT = 0;
       this.cleanT = 0;
       this.overSpeed = false;
+      this.hiddenFor = 0;
+      this.coolFrom = 0;
+      this.purse = 0;
       this.shownBounty = 0;
       this.respawnIn = 2;
     },
@@ -29870,17 +30103,24 @@ void main() {
       this.peak = 0;
       this.heat = 0;
       this.stars = 0;
+      this.hiddenFor = 0;
+      this.coolFrom = 0;
+      this.purse = 0;
+      this.shownBounty = 0;
+      if (career.state && career.state.wanted) career.state.wanted.bounty = 0;
       this.clearUnits();
     },
     /* The shared career stores heat. Switching views must not pay the bounty. */
     capture() {
       if (!career.state) return;
       const prev = career.state.wanted && typeof career.state.wanted === "object" ? career.state.wanted : {};
-      career.state.wanted = {
+      const bounty = Math.max(0, Math.min(BOUNTY_CAP, Math.round(this.purse || Number(prev.bounty) || 0)));
+      career.state.wanted = Object.assign({}, prev, {
         heat: this.heat || 0,
         stars: this.stars || 0,
-        peak: Math.max(Number(prev.peak) || 0, this.peak || 0, this.stars || 0)
-      };
+        peak: Math.max(Number(prev.peak) || 0, this.peak || 0, this.stars || 0),
+        bounty
+      });
     },
     restore() {
       this.clearUnits();
@@ -29888,17 +30128,72 @@ void main() {
       this.heat = Math.max(0, Number(w && w.heat) || 0);
       this.stars = starsOf(this.heat);
       this.peak = Math.max(Number(w && w.peak) || 0, this.stars);
+      this.purse = Math.max(0, Math.min(BOUNTY_CAP, Math.round(Number(w && w.bounty) || 0)));
       this.seen = false;
       this.bustT = 0;
-      this.shownBounty = this.stars > 0 ? this.bounty() : 0;
-      if (career.state) career.state.wanted = { heat: this.heat, stars: this.stars, peak: this.peak };
-      if (this.stars > 0) this._ensureCops();
+      this.hiddenFor = 0;
+      this.coolFrom = this.heat;
+      this.shownBounty = this.bounty();
+      if (this.stars > 0) {
+        this.pullBadge();
+        this._ensureCops();
+      }
+    },
+    _addStarBounty(from, to) {
+      if (!career.state) return;
+      const role = career.state.role || "neutral";
+      if (role === "police") return;
+      let add = 0;
+      for (let k = (from | 0) + 1; k <= (to | 0); k++) add += starPay(k, role);
+      if (!(add > 0)) return;
+      const cur = Math.max(0, Math.round(this.purse || 0));
+      const next = Math.min(BOUNTY_CAP, cur + add);
+      if (next === cur) return;
+      this.purse = next;
+      this.shownBounty = next;
+      if (!career.state.wanted || typeof career.state.wanted !== "object") career.state.wanted = {};
+      career.state.wanted.bounty = next;
+      this.msg((to > 1 ? to + " stars" : "1 star") + " \u2014 bounty +$" + (next - cur), "#fff");
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ type: "rl-stars", stars: to, role }, "*");
+        } catch (e) {
+        }
+      }
+    },
+    addCrime(kind) {
+      if (!career.state) return 0;
+      const role = career.state.role || "neutral";
+      if (role === "police") return 0;
+      const amt = crimePay(kind);
+      if (!(amt > 0)) return 0;
+      const now2 = typeof performance !== "undefined" ? performance.now() : Date.now();
+      if (now2 - (this.crimeAt || 0) < 1e3) return 0;
+      this.crimeAt = now2;
+      const cur = Math.max(0, Math.round(this.purse || 0));
+      const next = Math.min(BOUNTY_CAP, cur + amt);
+      const gained = next - cur;
+      if (!(gained > 0)) return 0;
+      this.purse = next;
+      this.shownBounty = next;
+      if (!career.state.wanted || typeof career.state.wanted !== "object") career.state.wanted = {};
+      career.state.wanted.bounty = next;
+      const label = kind === "pedestrian" ? "Pedestrian" : kind === "wreck" ? "Wreck" : "Ram";
+      this.msg(label + " \u2014 bounty +$" + gained, "#fff");
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ type: "rl-crime", kind }, "*");
+        } catch (e) {
+        }
+      }
+      return gained;
     },
     /** One-shot offenses. Speeding is metered in update so a short burst barely counts. */
     offense(kind, amount, opt) {
-      const role = career.state && career.state.role || "neutral";
-      if (role === "police" || !career.state) return;
+      if (!career.state) return;
+      const role = career.state.role || "neutral";
       opt = opt || {};
+      if (role === "police" && opt.duty) return;
       let a = amount;
       if (!(a > 0)) return;
       if (role === "criminal") {
@@ -29906,7 +30201,15 @@ void main() {
         if (rankOf("criminal") >= 4) a *= 0.85;
       }
       if (a < 1) a *= 0.45;
+      if (this.coolFrom > this.heat) this.heat = this.coolFrom;
+      this.hiddenFor = 0;
+      const beforeStars = this.stars;
       this.heat = Math.min(HEAT_MAX, this.heat + a);
+      if (kind === "robbery") {
+        const need = starThreshold(beforeStars + 1);
+        if (this.heat < need) this.heat = Math.min(HEAT_MAX, need);
+      }
+      this.coolFrom = this.heat;
       this.cleanT = 0;
       if (kind === "red" && career.state.totals) career.state.totals.redLights = (career.state.totals.redLights || 0) + 1;
       if (!opt.quiet && a >= 2) {
@@ -29924,19 +30227,18 @@ void main() {
         if (label && kind !== "red" && kind !== "traffic" && kind !== "cop") this.msg(label, "#ff8a2e");
       }
       this._sync();
+      if (role === "police" && this.stars > 0) this.pullBadge();
     },
-    /** Live escape purse. Climbs with heat, so the HUD number moves before the next star. */
+    /** Standing bounty. Heat can fall. This number does not, until a bust. */
     bounty() {
       if (!career.state) return 0;
-      if (this.heat <= 1 && this.stars <= 0) return 0;
-      const role = career.state.role || "neutral";
-      const stars = Math.max(this.stars, 1);
-      const base = Math.round(60 + this.heat * 4.5 + stars * 50);
-      return Math.round(base * (role === "criminal" ? 1.45 : 1));
+      if ((career.state.role || "neutral") === "police") return 0;
+      return Math.max(0, Math.min(BOUNTY_CAP, Math.round(this.purse || 0)));
     },
     update(dt, player, city) {
       if (!player || !city || !career.state) return;
-      const role = career.state.role || "neutral";
+      this.pullBadge();
+      let role = career.state.role || "neutral";
       const lot = lotAt(city, player.x, player.z);
       if (role !== "police") {
         const limitKmh = role === "criminal" ? 80 : 118;
@@ -29962,18 +30264,24 @@ void main() {
         } else if (!node) this.redLatch = null;
       } else this.overSpeed = false;
       if (!this.overSpeed) this.cleanT += dt;
-      if (this.heat > 0 && this.cleanT > 1.15 && !this.overSpeed) {
-        const ghost = role === "criminal" && rankOf("criminal") >= 4 ? 1.2 : 0;
-        this.heat = Math.max(0, this.heat - (2.15 + ghost) * dt);
+      if (this.stars <= 0 && this.heat > 0 && this.cleanT > 1.15 && !this.overSpeed) {
+        const king = role === "criminal" && rankOf("criminal") >= 4;
+        let rate = 2;
+        if (role === "criminal" && !king) rate *= 0.78;
+        this.heat = Math.max(0, this.heat - rate * dt);
       }
       this._sync();
-      if (this.stars > 0) this.shownBounty = this.bounty();
+      this.pullBadge();
+      this.shownBounty = this.bounty();
       if (this.stars <= 0) {
         this.seen = false;
+        this.hiddenFor = 0;
         if (this.cops.length) this._ensureCops();
         clearFoot(this);
+        updateSight(this, dt, player, city);
         return;
       }
+      if (this.beats && this.beats.length) clearSight(this);
       this._driveCops(dt, player, city);
       this._hazards(dt, player, city);
       this._heliLogic(dt, player, lot);
@@ -29992,10 +30300,24 @@ void main() {
       }
       if (this.stars >= 5 && this.heli && this.heliSearch < 2.4) seen = true;
       this.seen = seen;
-      if (!seen && (player.speed < 8 || lot)) {
-        const ghost = role === "criminal" && rankOf("criminal") >= 4;
-        const rate = (lot ? 8 : 5) + (ghost ? 1.5 : 0);
-        this.heat = Math.max(0, this.heat - rate * dt);
+      if (seen) {
+        if (this.coolFrom > this.heat) this.heat = this.coolFrom;
+        this.hiddenFor = 0;
+      } else if (this.stars > 0) {
+        if (this.hiddenFor <= 0) this.coolFrom = this.heat;
+        const king = role === "criminal" && rankOf("criminal") >= 4;
+        const slow = role === "criminal" && !king ? 0.78 : 1;
+        this.hiddenFor += dt * slow;
+        const need = this._hideNeed();
+        const floor = this._bandFloor(this.stars);
+        if (need > 0 && this.hiddenFor >= need) {
+          this.heat = Math.max(0, floor - 0.02);
+          this.hiddenFor = 0;
+          this.coolFrom = this.heat;
+        } else if (need > 0 && this.coolFrom > floor) {
+          const t = this.hiddenFor / need;
+          this.heat = Math.max(floor, this.coolFrom + (floor - this.coolFrom) * t);
+        }
       }
       const want = copTarget(this.stars, this.heat);
       if (this.cops.length < want) {
@@ -30008,12 +30330,33 @@ void main() {
       const touch2 = this.cops.some((c) => !c.dismounted && Math.hypot(player.x - c.x, player.z - c.z) < 4.7);
       if (touch2 && !player.onFoot) this.bustT += dt;
       else this.bustT = Math.max(0, this.bustT - dt * 0.6);
+      const starsBefore = this.stars;
       if (this.bustT > 1.25) this._bust(player, city);
       else this._sync();
+      if (this.stars > 0 && this.stars < starsBefore) this.msg("Star dropped \u2014 stay hidden", "#fff");
       updateFoot(this, dt, player, city);
+    },
+    _bandFloor(stars) {
+      return starThreshold(Math.max(0, stars | 0));
+    },
+    _hideNeed() {
+      const base = hideSeconds(this.stars);
+      const role = career.state && career.state.role || "neutral";
+      const ghost = role === "criminal" && rankOf("criminal") >= 4;
+      return ghost ? base * 0.85 : base;
+    },
+    /** White HUD line. HIDDEN counts down. COOLDOWN is the full wait while they can see you. */
+    cooldownLabel() {
+      if (this.stars <= 0) return "";
+      const need = this._hideNeed();
+      const hiding = !this.seen;
+      const left = hiding ? Math.max(0, need - this.hiddenFor) : need;
+      const clock = formatCooldown(left);
+      return hiding ? "HIDDEN " + clock : "COOLDOWN " + clock;
     },
     present(dt) {
       presentFoot(this);
+      presentSight(this);
       const night = 1;
       for (const c of this.cops) {
         if (!c.mesh) continue;
@@ -30042,8 +30385,10 @@ void main() {
       const next = starsOf(this.heat);
       if (next === this.stars) return;
       if (next > this.stars) {
+        const prev = this.stars | 0;
         this.stars = next;
         this.peak = Math.max(this.peak, next);
+        this._addStarBounty(prev, next);
         if (career.state) {
           career.state.totals.peakStars = Math.max(career.state.totals.peakStars || 0, next);
           career.checkAchievements();
@@ -30078,13 +30423,40 @@ void main() {
         }
       }
     },
+    _farSpot(player, index) {
+      const city = this.hub && this.hub.city;
+      const pitch = 86, half = 3, extent = half * pitch;
+      const minD = 90;
+      let best = null;
+      const consider = (x, z) => {
+        if (!city || !city.isRoad(x, z)) return;
+        const d = Math.hypot(x - player.x, z - player.z);
+        if (d < minD) return;
+        const score = d + (index * 13 + Math.round(x / 10) + Math.round(z / 7)) % 9 * 4;
+        if (!best || score > best.score) best = { x, z, d, score };
+      };
+      if (city) {
+        for (let i = -half; i <= half; i++) {
+          for (let t = -extent; t <= extent; t += 28) {
+            consider(t, i * pitch);
+            consider(i * pitch, t);
+          }
+        }
+      }
+      if (best) return best;
+      if (city && city.nearestRoad) {
+        const road = city.nearestRoad(player.x + minD, player.z - minD);
+        const d = Math.hypot(road.x - player.x, road.z - player.z);
+        return { x: road.x, z: road.z, d };
+      }
+      return { x: player.x + minD, z: player.z, d: minD };
+    },
     _spawnCop(player, index) {
       const mesh = buildCar("Coupe", { color: "#16315f", rims: 0, decal: "stripes", siren: true }, { lights: true });
       gfx.world.add(mesh);
-      const side = index === 0 ? 0 : (index % 2 === 0 ? 1 : -1) * (7 + index * 2);
-      const back = 34 + index * 9;
-      const rx = Math.cos(player.h), rz = -Math.sin(player.h);
-      const stars = Math.max(1, this.stars);
+      const spot = this._farSpot(player, index);
+      const stars = Math.max(1, Math.min(5, this.stars));
+      const face = Math.atan2(player.x - spot.x, player.z - spot.z);
       const cop = blankVehicle({
         mesh,
         name: "Police",
@@ -30096,9 +30468,9 @@ void main() {
           nitro: 24,
           durability: 70
         }),
-        x: player.x - Math.sin(player.h) * back + rx * side,
-        z: player.z - Math.cos(player.h) * back + rz * side,
-        h: player.h,
+        x: spot.x,
+        z: spot.z,
+        h: face,
         nitro: 40
       });
       this.cops.push(cop);
@@ -30108,11 +30480,29 @@ void main() {
       const n = this.cops.length;
       this.cops.forEach((cop, i) => {
         if (cop.dismounted) return;
-        const ahead = i === 0 ? lead : lead + 8;
+        const ahead = i === 0 ? Math.min(18, lead) : Math.min(22, lead + 8);
         const side = (i - (n - 1) / 2) * 5.5;
-        const tx = player.x + Math.sin(player.h) * ahead + Math.cos(player.h) * side;
-        const tz = player.z + Math.cos(player.h) * ahead - Math.sin(player.h) * side;
-        const cap = COP_CAP[this.stars] || COP_CAP[1];
+        let tx = player.x + Math.sin(player.h) * ahead + Math.cos(player.h) * side;
+        let tz = player.z + Math.cos(player.h) * ahead - Math.sin(player.h) * side;
+        const cap = COP_CAP[Math.min(5, Math.max(1, this.stars))] || COP_CAP[1];
+        if (cop.stuckT > 1.05 && !cop.way) {
+          const spin = (cop.unstuck || 0) % 4 * (Math.PI / 2);
+          const ang = (cop.h || 0) + Math.PI + spin;
+          const reach = 18 + (cop.unstuck || 0) % 3 * 8;
+          const road = city.nearestRoad(cop.x + Math.sin(ang) * reach, cop.z + Math.cos(ang) * reach);
+          cop.way = { x: road.x, z: road.z };
+          cop.wayT = 0;
+          cop.unstuck = (cop.unstuck || 0) + 1;
+        }
+        if (cop.way) {
+          tx = cop.way.x;
+          tz = cop.way.z;
+          cop.wayT = (cop.wayT || 0) + dt;
+          if (Math.hypot(cop.x - tx, cop.z - tz) < 4 || cop.wayT > 3.2) {
+            cop.way = null;
+            cop.stuckT = 0;
+          }
+        }
         const inp = seekInput(cop, tx, tz, cap);
         inp.nitro = this.stars >= 4 && cop.nitro > 12 && Math.hypot(tx - cop.x, tz - cop.z) > 24;
         cop.offroad = !city.isRoad(cop.x, cop.z);
@@ -30136,14 +30526,6 @@ void main() {
             cop.exploded = true;
             wrecks.boom(cop.x, 0.5, cop.z, this.hub && this.hub.fx);
           }
-        }
-        if (cop.stuckT > 1.8) {
-          const road = city.nearestRoad(player.x - Math.sin(player.h) * 20, player.z - Math.cos(player.h) * 20);
-          cop.x = road.x;
-          cop.z = road.z;
-          cop.h = player.h;
-          cop.vx = cop.vz = 0;
-          cop.stuckT = 0;
         }
       });
       if (this.cops.some((c) => c.exploded)) {
@@ -30312,6 +30694,11 @@ void main() {
       this.heat = 0;
       this.peak = 0;
       this.stars = 0;
+      this.hiddenFor = 0;
+      this.coolFrom = 0;
+      this.purse = 0;
+      this.shownBounty = 0;
+      if (career.state && career.state.wanted) career.state.wanted.bounty = 0;
       this.bustT = 0;
       this.clearUnits();
       career.checkAchievements();
@@ -30322,22 +30709,25 @@ void main() {
     _evade() {
       const peak = this.peak;
       this.peak = 0;
+      this.heat = 0;
+      this.stars = 0;
+      this.hiddenFor = 0;
+      this.coolFrom = 0;
       this.clearUnits();
       const role = career.state.role || "neutral";
-      const pay = this.shownBounty || Math.round((90 + peak * 80) * (role === "criminal" ? 1.45 : 1));
-      this.shownBounty = 0;
-      career.addMoney(pay);
+      const kept = this.bounty();
       career.state.respect += peak;
       career.state.totals.escapes = (career.state.totals.escapes || 0) + 1;
       if (peak >= 4) career.state.totals.evadesHigh = (career.state.totals.evadesHigh || 0) + 1;
       if (role === "criminal") career.state.roleXp.criminal = (career.state.roleXp.criminal || 0) + 8 + peak * 2;
       career.checkAchievements();
       career.save();
-      this.msg("Lost them. +$" + pay + " \xB7 +" + peak + " rep", "#7dff5a");
+      this.msg(kept > 0 ? "Lost them. Bounty stays $" + kept : "Lost them. +" + peak + " rep", "#fff");
       if (this.onEvade) this.onEvade(peak);
     },
     clearUnits() {
       clearFoot(this);
+      clearSight(this);
       for (const c of this.cops) if (c.mesh) {
         gfx.world.remove(c.mesh);
         disposeCar(c.mesh);
@@ -30363,6 +30753,7 @@ void main() {
     meshes() {
       const out = this.cops.map((c) => c.mesh).filter(Boolean);
       for (const m of footMeshes(this)) out.push(m);
+      for (const m of sightMeshes(this)) out.push(m);
       if (this.heli) out.push(this.heli);
       if (this.propGroup) out.push(this.propGroup);
       return out;
@@ -30384,6 +30775,7 @@ void main() {
   var ROLE_ORDER = ["neutral", "criminal", "police"];
   var XP_STEPS = [0, 40, 110, 200, 320];
   var COOLDOWN = 6e4;
+  var ROLE_LOCK_MS = 5 * 60 * 1e3;
   var ROLE_INFO = {
     neutral: {
       name: "Neutral",
@@ -30394,14 +30786,14 @@ void main() {
     criminal: {
       name: "Criminal",
       ranks: ["Associate", "Runner", "Thief", "Smuggler", "Kingpin"],
-      perks: ["Heat climbs 65% faster", "Job pay +15%", "Underglow kit", "Spike strips hurt half as much", "Heat \u221215% and job pay +35%"],
-      blurb: "Heists and smuggling pay big. Every noisy minute puts stars on the board faster than a civilian would earn them."
+      perks: ["Heat climbs 65% faster", "Job pay +15%", "Underglow kit", "Spike strips hurt half as much", "Heat \u221215%, job pay +35%, street tax waived"],
+      blurb: "Heists pay big. Police shoot on sight even with no stars. The shot flashes and aims where you were \u2014 move, or use the far side of the street. The station lot is a ceasefire. Shops, repairs, fuel, and the hospital cost 12% more, sales pay less, and heat falls slower until Kingpin."
     },
     police: {
       name: "Police",
       ranks: ["Cadet", "Officer", "Sergeant", "Lieutenant", "Chief"],
       perks: ["Bounties as posted", "Wider bust window", "Bounty +20%", "Siren slows a runner", "Bounty +50%"],
-      blurb: "The livery is yours. Ram a runner or sit on their nose until they box themselves. Street racers are fair game. You do not take heat."
+      blurb: "The livery is yours. Ram a runner or sit on their nose until they box themselves. Street racers are fair game. A wanted star pulls the badge: you become Neutral and cannot change roles for 5 minutes."
     }
   };
   function rankIndex(xp) {
@@ -30414,9 +30806,18 @@ void main() {
     const xp = career.state && career.state.roleXp ? career.state.roleXp[role] || 0 : 0;
     return info.ranks[rankIndex(xp)];
   }
+  function formatLock(ms) {
+    const total = Math.max(0, Math.ceil((Number(ms) || 0) / 1e3));
+    const m = Math.floor(total / 60);
+    const sec = total % 60;
+    return m + ":" + (sec < 10 ? "0" : "") + sec;
+  }
   function switchWait() {
     if (!career.state) return 0;
-    return Math.max(0, (career.state.roleSwitchAt || 0) + COOLDOWN - Date.now());
+    const now2 = Date.now();
+    const until = Number(career.state.roleCooldownUntil) || 0;
+    const fromSwitch = (Number(career.state.roleSwitchAt) || 0) + COOLDOWN;
+    return Math.max(0, until - now2, fromSwitch - now2);
   }
   var roles = {
     hub: null,
@@ -30451,8 +30852,42 @@ void main() {
       career.checkAchievements();
       career.save();
       if (this.onChange) this.onChange();
-      this.note("Now " + ROLE_INFO[id].name, "#2ee6ff");
+      this.note("Now " + ROLE_INFO[id].name, "#fff");
+      this.paintLock();
       return { ok: true };
+    },
+    /* Cop + a wanted star. Neutral immediately, and the save keeps the 5 minute lock. */
+    revokeForWanted() {
+      const s = career.state;
+      if (!s || s.role !== "police") return false;
+      s.role = "neutral";
+      s.iaStrikes = 0;
+      const end = Math.max(Number(s.roleCooldownUntil) || 0, Date.now() + ROLE_LOCK_MS);
+      s.roleCooldownUntil = end;
+      s.roleSwitchAt = end - 6e4;
+      this._applyLook();
+      this.clearDuty();
+      if (this.hub && this.hub.refreshCar) this.hub.refreshCar();
+      career.save();
+      if (this.hub && this.hub.msgs) {
+        this.hub.msgs.unshift({ text: "Badge pulled. You are Neutral. Role lock 5:00.", t: 3.4, color: "#fff" });
+      }
+      this.paintLock();
+      if (this.onChange) this.onChange();
+      return true;
+    },
+    paintLock() {
+      if (typeof document === "undefined") return;
+      const el = document.getElementById("role-lock");
+      const inline = document.getElementById("role-lock-inline");
+      const left = switchWait();
+      const hub2 = document.body.classList.contains("mode-hub");
+      if (el) {
+        const show = hub2 && left > 0;
+        el.hidden = !show;
+        if (show) el.textContent = "ROLE LOCK " + formatLock(left);
+      }
+      if (inline) inline.textContent = formatLock(left);
     },
     _applyLook() {
       const s = career.state;
@@ -30567,12 +31002,12 @@ void main() {
         if (job.t > job.limit) this.failJob("The buyer left.");
       }
     },
-    _payJob(kind, money, xp) {
+    _payJob(kind, money2, xp) {
       let mult = 1;
       const ri = rankIndex(career.state.roleXp.criminal || 0);
       if (ri >= 1) mult += 0.15;
       if (ri >= 4) mult += 0.35;
-      const pay = Math.round(money * mult);
+      const pay = Math.round(money2 * mult);
       career.addMoney(pay);
       career.state.roleXp.criminal = (career.state.roleXp.criminal || 0) + xp;
       if (kind === "heist") career.state.totals.heists = (career.state.totals.heists || 0) + 1;
@@ -30722,6 +31157,79 @@ void main() {
       return null;
     }
   };
+  wanted.onPoliceWanted = function() {
+    roles.revokeForWanted();
+  };
+
+  // js/robbery.js
+  var TILL_MS = 9e4;
+  var SHOPS = {
+    shop: { name: "Shop", pay: 280, heat: 14 },
+    mart: { name: "Quick Mart", pay: 460, heat: 16 },
+    dealer: { name: "Dealership", pay: 820, heat: 18 },
+    gas: { name: "Nitro Fuel", pay: 180, heat: 14 }
+  };
+  function isShop(id) {
+    return !!SHOPS[id];
+  }
+  function tills() {
+    const s = career.state;
+    if (!s) return {};
+    if (!s.tills || typeof s.tills !== "object" || Array.isArray(s.tills)) s.tills = {};
+    return s.tills;
+  }
+  function readyIn(id) {
+    return Math.max(0, (Number(tills()[id]) || 0) - Date.now());
+  }
+  function payFor(id) {
+    const spec = SHOPS[id];
+    return spec ? spec.pay : 0;
+  }
+  function money(n) {
+    return "$" + Math.round(n).toLocaleString("en-US");
+  }
+  function promptLine(id) {
+    const spec = SHOPS[id];
+    if (!spec) return "";
+    if (readyIn(id) > 0) return spec.name + "  [E]  \xB7  till empty";
+    return spec.name + "  [E] open  \xB7  [C] Rob " + money(payFor(id));
+  }
+  function card(id) {
+    const spec = SHOPS[id];
+    if (!spec) return "";
+    const wait = readyIn(id);
+    const line = wait > 0 ? "Till empty. Give it a minute." : "Take " + money(payFor(id)) + ". Stars and bounty go up.";
+    return '<div class="card rob-card"><div><b>Rob the register</b><div class="rob-line">' + line + '</div></div><div class="btns"><button data-act="robbery"' + (wait > 0 ? " disabled" : "") + ">Rob</button></div></div>";
+  }
+  function rob(id) {
+    const spec = SHOPS[id];
+    const s = career.state;
+    if (!spec || !s) return { ok: false, reason: "none", text: "" };
+    const role = s.role || "neutral";
+    if (role === "police") return { ok: false, reason: "police", text: "Shops stay shut for a badge." };
+    if (readyIn(id) > 0) return { ok: false, reason: "empty", text: spec.name + " till is empty." };
+    const pay = payFor(id);
+    if (!s.totals) s.totals = {};
+    s.totals.heists = (s.totals.heists || 0) + 1;
+    career.addMoney(pay);
+    tills()[id] = Date.now() + TILL_MS;
+    wanted.offense("robbery", spec.heat, { quiet: true });
+    wanted.shownBounty = wanted.stars > 0 ? wanted.bounty() : 0;
+    if (s.wanted) s.wanted = { heat: wanted.heat, stars: wanted.stars, peak: Math.max(s.wanted.peak || 0, wanted.peak || 0, wanted.stars || 0) };
+    const key = role === "criminal" ? "criminal" : "neutral";
+    if (!s.roleXp) s.roleXp = { neutral: 0, criminal: 0, police: 0 };
+    s.roleXp[key] = (s.roleXp[key] || 0) + (spec.pay >= 500 ? 18 : 10);
+    career.save();
+    const stars = wanted.stars;
+    const bounty = wanted.bounty();
+    return {
+      ok: true,
+      pay,
+      stars,
+      bounty,
+      text: "Robbed " + spec.name + " +" + money(pay) + " \xB7 " + stars + " star" + (stars === 1 ? "" : "s") + " \xB7 bounty " + money(bounty)
+    };
+  }
 
   // js/hub.js
   var hub = {
@@ -30745,6 +31253,7 @@ void main() {
       if (!this.player) this._spawnPlayer();
       else if (!this.player.stolen) this._restylePlayer();
       if (!this.traffic.length) this._spawnTraffic();
+      if (!this.peds || !this.peds.length) this._spawnPeds();
       if (!this.rivals.length) this._spawnRivals();
       this.cooldown = Math.max(this.cooldown, 4);
     },
@@ -30776,6 +31285,13 @@ void main() {
       this.player = null;
       this.parked = null;
       this.traffic = [];
+      if (this.peds) {
+        for (const ped of this.peds) if (ped.mesh) {
+          gfx.world.remove(ped.mesh);
+          disposePerson(ped.mesh);
+        }
+      }
+      this.peds = [];
       this.rivals = [];
       this.police = null;
     },
@@ -31014,6 +31530,7 @@ void main() {
         career.checkAchievements();
       }
       this._traffic(dt);
+      this._peds(dt);
       if (!this.challenge) {
         wanted.update(dt, p, this.city);
         roles.update(dt);
@@ -31098,7 +31615,7 @@ void main() {
         if (p.mesh) p.mesh.visible = true;
         return;
       }
-      const fee = 260;
+      const fee = career.bill(260);
       const paid = Math.min(career.state.money, fee);
       career.addMoney(-paid);
       const s = this.city.spawn;
@@ -31172,11 +31689,65 @@ void main() {
           if (this.fx) this.fx.sparks((p.x + c.x) / 2, 0.4, (p.z + c.z) / 2, 6);
           const bump = p.speed < 8 ? 0.4 : p.speed < 14 ? 2 : 8;
           wanted.offense("traffic", bump, { quiet: bump < 1 });
-          if (bump >= 1) this.msgs.push({ text: "Hit traffic", t: 1.2, color: "#ff8a2e" });
+          if (bump >= 1) {
+            this.msgs.push({ text: "Hit traffic", t: 1.2, color: "#fff" });
+            wanted.addCrime(c.damage >= 100 ? "wreck" : "ram");
+          }
           if (c.damage >= 100) this._scrapTraffic(c);
         }
       }
       this.traffic = this.traffic.filter((c) => !c.dead);
+    },
+    _spawnPeds() {
+      this.peds = [];
+      const pitch = 86;
+      const edge = 15 / 2 + 1.7;
+      const half = 3;
+      const colors = [16777215, 14148863, 16769162, 16765152, 13172704];
+      const extent = half * pitch - 12;
+      for (let i = -half; i <= half; i++) {
+        for (const side of [-1, 1]) {
+          const mesh = makePerson(colors[this.peds.length % colors.length], false);
+          gfx.world.add(mesh);
+          this.peds.push({
+            mesh,
+            x: i * pitch + side * edge,
+            z: -extent + this.peds.length % 5 * 18,
+            dir: this.peds.length % 2 ? 1 : -1,
+            down: 0
+          });
+        }
+      }
+    },
+    _peds(dt) {
+      if (!this.peds || !this.peds.length || !this.player) return;
+      const p = this.player;
+      const extent = 3 * 86 - 8;
+      for (const ped of this.peds) {
+        if (ped.down > 0) {
+          ped.down -= dt;
+          if (ped.mesh) {
+            ped.mesh.position.set(ped.x, 0.35, ped.z);
+            ped.mesh.rotation.z = Math.PI / 2;
+          }
+          continue;
+        }
+        ped.z += ped.dir * 1.4 * dt;
+        if (ped.z > extent || ped.z < -extent) ped.dir *= -1;
+        if (ped.mesh) {
+          ped.mesh.position.set(ped.x, 0, ped.z);
+          ped.mesh.rotation.z = 0;
+          ped.mesh.rotation.y = ped.dir > 0 ? 0 : Math.PI;
+        }
+        if (p.onFoot || p.wreckHold) continue;
+        if (p.speed < 8) continue;
+        if (Math.hypot(p.x - ped.x, p.z - ped.z) > 1.35) continue;
+        ped.down = 6;
+        ped.z += Math.cos(p.h || 0) * 1.2;
+        wanted.addCrime("pedestrian");
+        wanted.offense("traffic", 6);
+        this.msgs.push({ text: "Hit a pedestrian", t: 1.4, color: "#fff" });
+      }
     },
     _scrapTraffic(c) {
       if (c.dead) return;
@@ -31189,18 +31760,41 @@ void main() {
         c.mesh = null;
       }
     },
+    _shopHere(p) {
+      const lot = lotAt(this.city, p.x, p.z);
+      if (lot && isShop(lot.id)) return lot;
+      if (!p.onFoot || !this.city || !this.city.pois) return null;
+      let best = null, bd = 9;
+      for (const poi of this.city.pois) {
+        if (!isShop(poi.id)) continue;
+        const d = Math.hypot(poi.x - p.x, poi.z - p.z);
+        if (d < bd) {
+          bd = d;
+          best = poi;
+        }
+      }
+      return best;
+    },
     _prompt(input2) {
       if (this.challenge) {
         this.prompt = null;
         return;
       }
       const p = this.player;
-      if (p.onFoot && this.mount) {
-        const d = Math.hypot(p.x - this.mount.x, p.z - this.mount.z);
-        if (d < 4.6) {
-          this.prompt = { kind: "enter", text: "Get in the car  [Q]" };
-          if (input2.hit("action")) this.enterCar();
-        } else this.prompt = { kind: "foot", text: "On foot. Get back to the car." };
+      const shop = this._shopHere(p);
+      const nearMount = p.onFoot && this.mount && Math.hypot(p.x - this.mount.x, p.z - this.mount.z) < 4.6;
+      if (shop && (p.onFoot || p.speed <= 7)) {
+        this.prompt = { kind: "rob", text: promptLine(shop.id) };
+        if (input2.hit("action") && this.onPoi) this.onPoi(shop.id);
+        if (input2.hit("steal")) {
+          const res = rob(shop.id);
+          if (res.text) this.msgs.unshift({ text: res.text, t: 2.6, color: "#fff" });
+        }
+        return;
+      }
+      if (nearMount) {
+        this.prompt = { kind: "enter", text: "Get in the car  [Q]" };
+        if (input2.hit("action") || input2.hit("steal")) this.enterCar();
         return;
       }
       const extra = roles.promptExtra();
@@ -31290,8 +31884,8 @@ void main() {
         return;
       }
       if (this.parked && Math.hypot(p.x - this.parked.x, p.z - this.parked.z) < 5.5 && p.speed < 8) {
-        this.prompt = { kind: "reclaim", text: "Get back in your car  [E]" };
-        if (input2.hit("action")) this._reclaim();
+        this.prompt = { kind: "reclaim", text: "Get back in your car  [E/C]" };
+        if (input2.hit("action") || input2.hit("steal")) this._reclaim();
         return;
       }
       let jack = null;
@@ -31306,8 +31900,12 @@ void main() {
       }
       if (jack) {
         const hp = Math.max(0, Math.round(100 - (jack.damage || 0)));
-        this.prompt = { kind: "steal", text: "Steal tier " + jack.tier + " " + jack.def.name + " \xB7 " + hp + "%  [E]" };
-        if (input2.hit("action")) this._steal(jack);
+        this.prompt = { kind: "steal", text: "Steal tier " + jack.tier + " " + jack.def.name + " \xB7 " + hp + "%  [E/C]" };
+        if (input2.hit("action") || input2.hit("steal")) this._steal(jack);
+        return;
+      }
+      if (p.onFoot && this.mount) {
+        this.prompt = { kind: "foot", text: "On foot. Walk up to a shop, or back to the car." };
         return;
       }
       this.prompt = null;
@@ -32874,6 +33472,9 @@ void main() {
     isOpen() {
       return stack.length > 0;
     },
+    refresh() {
+      if (stack.length) render(false);
+    },
     topLocked() {
       const v = stack[stack.length - 1];
       return !!(v && v.noClose);
@@ -32894,6 +33495,7 @@ void main() {
       const t = document.createElement("div");
       t.className = "toast";
       t.textContent = text;
+      t.style.color = "#fff";
       t.style.borderColor = color || "#2ee6ff";
       $("toasts").appendChild(t);
       setTimeout(() => t.classList.add("out"), 3200);
@@ -33129,7 +33731,8 @@ void main() {
     });
   }
   function showHelp() {
-    open({ title: "How to Play", render: () => `<ul class="help"><li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building's lot and press <kbd>E</kbd>. The avenue itself is not a door. Downtown has the garage, race office, shop, dealership, and the bar hideout. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway meetup is east.</li><li><b>Heat:</b> stars are slow. A nudge or a cone barely counts, and heat falls off when you drive clean. Red lights, wrecks, smashed props, and holding a high speed do count. One star is one cruiser, sometimes two. They are slower than a decent car \u2014 dodge them, don't try to out-muscle the whole city. The bounty under the stars is what a clean escape pays.</li><li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> to steal it. Tiers have different speed and health. Circuit races and the drag strip always use the car you own.</li><li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a 60s cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. Each role has its own rank.</li><li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li><li><b>Camera:</b> <kbd>V</kbd>, the Cam button, or the touch CAM button cycles chase, cockpit, a front camera (the road ahead stays in the corner), and top-down. A label such as Camera: Chase [V] shows the one you just picked. Top-down follows you from above and stays above the roofs. Settings chooses north-up or car-up. Left and right steer the car, including on foot and on the touch pad. The front camera looks back at you, so the car can move the other way on the screen. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li><li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260. Blowing up during a chase counts as a bust.</li><li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li><li><b>Drag:</b> hold brake + gas to stage, release brake on green, then shift with Space or Shift. Perfect shifts are a real bonus.</li><li><b>Custom:</b> the Race Office opens a custom grid and the track editor. Export a share code to pass a layout around.</li><li><b>Streets:</b> parked rivals with a gold glow will race you point to point. Police players can intercept them instead.</li><li>Top 3 in all three league races unlocks the boss. Beat the boss to get promoted.</li><li><kbd>F</kbd> photo mode. <kbd>R</kbd> resets you to the road if you get stuck. <kbd>Esc</kbd> pauses.</li></ul>` });
+    const clock = (n) => formatCooldown(hideSeconds(n));
+    open({ title: "How to Play", cls: "help-panel", render: () => `<ul class="help"><li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building's lot and press <kbd>E</kbd>. The avenue itself is not a door. Downtown has the garage, race office, shop, dealership, and the bar hideout. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway meetup is east.</li><li><b>Heat:</b> stars do not stop at five. The board shows up to five star icons, then a count such as \u2605 x12. A nudge or a cone barely counts. Red lights, wrecks, smashed props, and holding a high speed do count. Stars do not fall while the police can see you. Break line of sight and stay hidden. The HUD shows a white cooldown: ` + clock(1) + " at one star, " + clock(5) + " at five, and " + clock(8) + " at eight. Past five, every extra star waits longer. Spotting you resets that clock. When it hits zero, one star drops. Kingpin trims the wait a little. Each new star adds bounty, and a higher star adds more. Running someone over, ramming a car, or wrecking one adds bounty too. Losing the police pays nothing and does not wipe it. The bounty stays until you are busted. In a city server, a cop can bust you and claim it. Cruisers start off screen, on a road, and drive to you. A stuck cruiser reverses. It does not pop in beside you. Past five stars the squad stays small enough to dodge.</li><li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> or <kbd>C</kbd> to steal it. The STEAL button does the same. Tiers have different speed and health. Circuit races and the drag strip always use the car you own. At a shop door, <kbd>C</kbd> robs the till instead.</li><li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. If a cop picks up a wanted star, they become Neutral immediately and cannot change roles for 5 minutes. The timer shows on screen and is stored in the save. Each role has its own rank. A criminal is a known face: shops, repairs, fuel, and the hospital cost 12% more, sales pay less, and heat falls slower. Kingpin waives that street tax.</li><li><b>On sight:</b> with no wanted stars, an officer outside the police station still shoots a criminal in view. The shot flashes, then fires at the spot you were standing. Move more than a step, take the far lane, break the line with a building, or pull into the station lot. The lot is a ceasefire so you can still change roles. The shot spends health. It does not add a star. Driving off refills that health.</li><li><b>Shops:</b> Walk into the lot of the parts shop, Quick Mart, the dealership, or Nitro Fuel. On foot, walk up to the same lot. <kbd>E</kbd> opens the counter. <kbd>C</kbd> or Rob the register takes the cash. Away from a till, <kbd>C</kbd> still steals a car. Wanted stars go up, and the bounty under them goes up with the heat. The till stays empty for about a minute. <kbd>Q</kbd> gets you back in the car.</li><li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li><li><b>Camera:</b> <kbd>V</kbd>, the Cam button, or the touch CAM button cycles chase, cockpit, a front camera (the road ahead stays in the corner), and top-down. A label such as Camera: Chase [V] shows the one you just picked. Top-down follows you from above and stays above the roofs. Settings chooses north-up or car-up. Left and right steer the car, including on foot and on the touch pad. The front camera looks back at you, so the car can move the other way on the screen. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li><li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260, or a bit more if you are a known criminal. Blowing up during a chase counts as a bust.</li><li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li><li><b>Drag:</b> hold brake + gas to stage, release brake on green, then shift with Space or Shift. Perfect shifts are a real bonus.</li><li><b>Custom:</b> the Race Office opens a custom grid and the track editor. Export a share code to pass a layout around.</li><li><b>Streets:</b> parked rivals with a gold glow will race you point to point. Police players can intercept them instead.</li><li>Top 3 in all three league races unlocks the boss. Beat the boss to get promoted.</li><li><kbd>F</kbd> photo mode. <kbd>R</kbd> resets you to the road if you get stuck. <kbd>Esc</kbd> pauses.</li></ul>" });
   }
   function showGarage(tab) {
     const v = {
@@ -33281,10 +33884,12 @@ void main() {
   function showHospital() {
     open({ title: "City Hospital", render: () => {
       const hp = actions.playerHp ? actions.playerHp() : 100;
-      return '<p>A bright clinic off the avenue. $40 puts you back to full. Wasted drivers already wake up here.</p><p class="small">HP ' + Math.round(hp) + '</p><div class="row"><button class="primary" data-act="heal"' + (career.state.money < 40 || hp >= 100 ? " disabled" : "") + ">Heal ($40)</button></div>";
+      const cost = career.bill(40);
+      return "<p>A bright clinic off the avenue. $" + cost + ' puts you back to full. Wasted drivers already wake up here.</p><p class="small">HP ' + Math.round(hp) + '</p><div class="row"><button class="primary" data-act="heal"' + (career.state.money < cost || hp >= 100 ? " disabled" : "") + ">Heal ($" + cost + ")</button></div>";
     }, acts: { heal: () => {
-      if (career.state.money < 40 || actions.playerHp && actions.playerHp() >= 100) return;
-      career.addMoney(-40);
+      const cost = career.bill(40);
+      if (career.state.money < cost || actions.playerHp && actions.playerHp() >= 100) return;
+      career.addMoney(-cost);
       if (actions.healPlayer) actions.healPlayer();
       audio.play("coin");
       ui.toast("All patched up", "#7dff5a");
@@ -33295,30 +33900,40 @@ void main() {
   function showGas() {
     open({ title: "Nitro Fuel", render: () => {
       const car = career.currentCar();
-      return '<p>High-test and a hose. Patch 15% damage for $120.</p><p class="small">Damage ' + Math.round(car.damage) + '%</p><div class="row"><button class="primary" data-act="fix"' + (career.state.money < 120 || car.damage < 1 ? " disabled" : "") + ">Patch</button></div>";
-    }, acts: { fix: () => {
-      const car = career.currentCar();
-      if (career.state.money < 120 || car.damage < 1) return;
-      career.addMoney(-120);
-      car.damage = Math.max(0, car.damage - 15);
-      if (actions.syncDamage) actions.syncDamage();
-      audio.play("coin");
-      ui.toast("Patched", "#7dff5a");
-      needSave();
-    } } });
+      const cost = career.bill(120);
+      return card("gas") + '<p class="rob-line">High-test and a hose. Patch 15% damage for $' + cost + '.</p><p class="rob-line">Damage ' + Math.round(car.damage) + '%</p><div class="row"><button class="primary" data-act="fix"' + (career.state.money < cost || car.damage < 1 ? " disabled" : "") + ">Patch</button></div>";
+    }, acts: {
+      robbery: () => finishRob(rob("gas")),
+      fix: () => {
+        const car = career.currentCar();
+        const cost = career.bill(120);
+        if (career.state.money < cost || car.damage < 1) return;
+        career.addMoney(-cost);
+        car.damage = Math.max(0, car.damage - 15);
+        if (actions.syncDamage) actions.syncDamage();
+        audio.play("coin");
+        ui.toast("Patched", "#7dff5a");
+        needSave();
+      }
+    } });
   }
   function showPlace(name, text) {
     open({ title: name || "Landmark", render: () => "<p>" + escapeHtml(text || "") + "</p>", acts: {} });
   }
-  function showShop(tab) {
+  function finishRob(res) {
+    if (res && res.text) ui.toast(res.text, "#fff");
+    if (res && res.ok) audio.play("coin");
+  }
+  function showShop(tab, place) {
+    const placeId = place && isShop(place) ? place : null;
     const v = { title: tab === "cars" ? "Dealership" : "Shop", tab: tab || "parts", render: () => {
-      const s = career.state, pm = career.priceMult();
-      let h = tabs(v, [["cars", "Cars"], ["parts", "Parts"], ["sell", "Sell"]]) + '<p class="small">Cash <b class="hl">' + fmtMoney(s.money) + "</b>" + (pm < 0.999 ? " \xB7 " + Math.round((1 - pm) * 100) + "% off" : "") + "</p>";
+      const s = career.state, pm = career.priceMult(), tax = career.crimeTax();
+      let h = (placeId ? card(placeId) : "") + tabs(v, [["cars", "Cars"], ["parts", "Parts"], ["sell", "Sell"]]) + '<p class="rob-line">Cash <b class="hl">' + fmtMoney(s.money) + "</b>" + (pm < 0.999 ? " \xB7 " + Math.round((1 - pm) * 100) + "% off" : "") + (tax > 1 ? " \xB7 street tax 12%" : "") + "</p>";
       if (v.tab === "cars") {
         h += RL.CARS.map((c) => {
           const owned = s.cars.some((x) => x.id === c.id);
           const locked = c.league > s.league;
-          const price = Math.round(c.price * pm);
+          const price = career.streetPrice(c.price);
           return '<div class="card"><div><i class="swatch" style="background:' + c.color + '"></i> <b>' + c.name + '</b> <span class="small">' + c.cls + " \xB7 L" + c.league + '</span><div class="mini">' + RL.STAT_ORDER.map((k) => "<span>" + RL.STAT_NAMES[k].slice(0, 3) + " " + c.s[k] + "</span>").join("") + '</div></div><div class="btns">' + (owned ? '<span class="eq">OWNED</span>' : locked ? '<span class="dim">League ' + c.league + "</span>" : '<button data-act="buycar" data-arg="' + c.id + '" ' + (s.money < price ? "disabled" : "") + ">" + fmtMoney(price) + "</button>") + "</div></div>";
         }).join("");
       } else if (v.tab === "parts") {
@@ -33326,7 +33941,7 @@ void main() {
         h += RL.SLOT_ORDER.map((slot) => '<div class="slot"><h4>' + RL.SLOTS[slot].icon + " " + RL.SLOTS[slot].name + "</h4>" + RL.RARITY_ORDER.map((r, i) => {
           if (i > maxR) return "";
           const proto = career.makePart(slot, r, false);
-          const price = Math.round(career.partValue(proto) * pm);
+          const price = career.streetPrice(career.partValue(proto));
           return partCard(proto, '<button data-act="buypart" data-arg="' + slot + "," + r + '" ' + (s.money < price ? "disabled" : "") + ">" + fmtMoney(price) + "</button>");
         }).join("") + "</div>").join("");
       } else {
@@ -33339,7 +33954,7 @@ void main() {
         v.tab = a;
       },
       buycar: (id) => {
-        const c = career.carDef(id), price = Math.round(c.price * career.priceMult());
+        const c = career.carDef(id), price = career.streetPrice(c.price);
         if (career.state.money < price) return audio.play("error");
         career.addMoney(-price);
         const inst = { uid: career.makePart("paint", "common", false).uid, id, damage: 0, parts: {}, tune: { gear: 0, aero: 0 }, style: { color: c.color, rims: 1, decal: "none", underglow: false } };
@@ -33353,7 +33968,7 @@ void main() {
       buypart: (a) => {
         const [slot, r] = a.split(",");
         const p = career.makePart(slot, r, false);
-        const price = Math.round(career.partValue(p) * career.priceMult());
+        const price = career.streetPrice(career.partValue(p));
         if (career.state.money < price) return audio.play("error");
         career.addMoney(-price);
         career.state.inventory.push(p);
@@ -33368,6 +33983,9 @@ void main() {
         career.addMoney(career.sellPrice(p));
         audio.play("coin");
         needSave();
+      },
+      robbery: () => {
+        if (placeId) finishRob(rob(placeId));
       }
     } };
     open(v);
@@ -33470,15 +34088,16 @@ void main() {
     const v = { title: "HQ", render: () => {
       const s = career.state;
       const role = s.role || "neutral";
-      const wait = Math.ceil(switchWait() / 1e3);
+      const wait = switchWait();
+      const locked = wait > 0 || wanted.stars > 0;
       let h = "<p>" + ROLE_INFO[role].blurb + "</p>";
-      h += '<p class="small">Current <b>' + ROLE_INFO[role].name + "</b> \xB7 " + rankName(role) + " \xB7 " + (wanted.stars ? wanted.stars + " stars" : "clean") + "</p>";
-      if (wait > 0) h += '<p class="small dim">Role switch ready in ' + wait + "s</p>";
-      h += '<div class="row">' + ROLE_ORDER.map((id) => '<button data-act="role" data-arg="' + id + '"' + (id === role ? " disabled" : "") + ">" + ROLE_INFO[id].name + "</button>").join("") + "</div>";
+      h += '<p class="role-lock-copy">Current <b>' + ROLE_INFO[role].name + "</b> \xB7 " + rankName(role) + " \xB7 " + (wanted.stars ? wanted.stars + " stars" : "clean") + "</p>";
+      if (wait > 0) h += '<p class="role-lock-copy">Role change locked <b id="role-lock-inline">' + formatLock(wait) + "</b></p>";
+      h += '<div class="row">' + ROLE_ORDER.map((id) => '<button data-act="role" data-arg="' + id + '"' + (id === role || locked ? " disabled" : "") + ">" + ROLE_INFO[id].name + (id !== role && locked ? " \xB7 Locked" : "") + "</button>").join("") + "</div>";
       h += ROLE_ORDER.map((id) => {
         const info = ROLE_INFO[id];
         const ri = rankIndex(s.roleXp[id] || 0);
-        return "<h3>" + info.name + '</h3><p class="small">' + info.ranks[ri] + " \u2014 " + info.perks[ri] + "</p>";
+        return '<h3 style="color:#fff">' + info.name + '</h3><p class="role-lock-copy">' + info.ranks[ri] + " \u2014 " + info.perks[ri] + "</p>";
       }).join("");
       if (role === "police") h += '<div class="row"><button class="primary" data-act="pursuit">Start a pursuit</button></div>';
       if (role === "criminal") h += '<div class="row"><button data-act="jobs">Criminal jobs</button></div>';
@@ -33486,7 +34105,7 @@ void main() {
     }, acts: {
       role: (id) => {
         const res = roles.switchTo(id);
-        if (!res.ok && res.reason === "cooldown") ui.toast("Cooldown " + Math.ceil(res.wait / 1e3) + "s");
+        if (!res.ok && res.reason === "cooldown") ui.toast("Role lock " + formatLock(res.wait));
         else if (!res.ok && res.reason === "heat") ui.toast("Lose the heat first");
         else if (res.ok) {
           ui.toast("Role: " + ROLE_INFO[id].name);
@@ -34136,6 +34755,9 @@ void main() {
   // js/game.js
   var $2 = (id) => document.getElementById(id);
   var STEP = 1 / 60;
+  function escapeHud(s) {
+    return String(s == null ? "" : s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  }
   var game = {
     mode: "title",
     city: null,
@@ -34285,6 +34907,10 @@ void main() {
         if (w !== "auto") this.weather = w;
       };
       actions.restyle = () => {
+        if (hub.player && (this.mode === "hub" || this.mode === "street")) hub.refreshCar();
+      };
+      roles.onChange = () => {
+        if (ui.refresh) ui.refresh();
         if (hub.player && (this.mode === "hub" || this.mode === "street")) hub.refreshCar();
       };
       actions.preview = () => {
@@ -34460,9 +35086,9 @@ void main() {
       const map = {
         garage: ui.showGarage,
         office: ui.showOffice,
-        shop: () => ui.showShop("parts"),
-        dealer: () => ui.showShop("cars"),
-        mart: () => ui.showShop("parts"),
+        shop: () => ui.showShop("parts", "shop"),
+        dealer: () => ui.showShop("cars", "dealer"),
+        mart: () => ui.showShop("parts", "mart"),
         bar: ui.showBar,
         training: ui.showTraining,
         police: ui.showHQ,
@@ -34701,6 +35327,7 @@ void main() {
           cd.textContent = n > 0 && n <= 3 ? String(n) : "";
         } else cd.hidden = true;
       }
+      if (roles.paintLock) roles.paintLock();
       this._raceHud();
       this._dragHud();
       this._minimap();
@@ -34712,11 +35339,13 @@ void main() {
         const show = (this.mode === "hub" || this.mode === "street") && (stars > 0 || bounty > 0 || role === "police" || role === "criminal");
         wantedEl.hidden = !show;
         if (show) {
-          const starsTxt = role === "police" && stars <= 0 ? "POLICE" : "\u2605".repeat(stars) + "\u2606".repeat(Math.max(0, 5 - stars));
+          const starsTxt = role === "police" && stars <= 0 ? "POLICE" : starLabel(stars);
           const rank = role ? rankName(role) : "";
           const purse = bounty > 0 ? "   BOUNTY $" + bounty.toLocaleString("en-US") : "";
-          wantedEl.textContent = starsTxt + purse + (rank ? "  " + rank : "");
-          wantedEl.className = "stars-" + stars + (role ? " role-" + role : "");
+          const cd2 = stars > 0 ? wanted.cooldownLabel() : "";
+          const main = starsTxt + (rank ? "  " + rank : "");
+          wantedEl.innerHTML = escapeHud(main) + (bounty > 0 ? '<span class="bounty">' + escapeHud(purse) + "</span>" : "") + (cd2 ? '<span class="cool">' + escapeHud(cd2) + "</span>" : "");
+          wantedEl.className = "stars-" + (stars > 5 ? "high" : stars) + (role ? " role-" + role : "");
         }
       }
       if ((this.mode === "hub" || this.mode === "street") && hub.player && $2("hud-car")) {

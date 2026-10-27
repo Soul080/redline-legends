@@ -1,9 +1,10 @@
 /* wanted.js — 1 to 5 star heat, in the spirit of a street-crime chase.
    Neutral drivers are left alone until the offense is loud. Criminals
-   climb faster. Police never take heat for doing the job.
+   climb faster. A cop who earns a star loses the badge on that same tick.
    Stars bring more cars, then a roadblock, spike strips, and a helicopter
    that only loses you once you are off the street and sitting still.
-   Heat sheds when you drive clean, and faster once you are hidden. */
+   A star falls only after a long hide. The HUD counts that cooldown down.
+   Being seen resets it. */
 
 import * as THREE from 'three';
 import { career } from './state.js';
@@ -14,13 +15,16 @@ import { seekInput } from './ai.js';
 import { lightIsRed, intersectionAt, lotAt } from './city.js';
 import { resolveCity } from './city.js';
 import { wrecks } from './wrecks.js';
-import { updateFoot, clearFoot, presentFoot, footMeshes, forceFoot, plant, strike, disposePerson } from './foot.js';
+import { hideSeconds, formatCooldown, crimePay, BOUNTY_CAP, starsOf, starThreshold, starPay, HEAT_MAX } from './heat.js';
+import { updateFoot, clearFoot, presentFoot, footMeshes, forceFoot, plant, strike, disposePerson, updateSight, clearSight, presentSight, sightMeshes } from './foot.js';
 
-const HEAT_MAX = 125;
-/* 1 star is one cruiser, or two once the bar is well filled. Never a squad at 1 star. */
+/* 1 star is one cruiser, or two once the bar is well filled. Never more than the 5-star squad. */
 function copTarget(stars, heat) {
   if (stars <= 0) return 0;
-  if (stars === 1) return heat >= 16 ? 2 : 1;
+  if (stars === 1) {
+    const span = Math.max(1, starThreshold(2) - starThreshold(1));
+    return heat >= starThreshold(1) + span * 0.55 ? 2 : 1;
+  }
   return Math.min(5, stars);
 }
 /* m/s. A stock Pip is about 38 and a league-1 coupe about 44, so low-star units are slower than a decent car. */
@@ -32,11 +36,6 @@ function rankOf(role) {
   let i = 0;
   for (let k = 0; k < steps.length; k++) if (xp >= steps[k]) i = k;
   return i;
-}
-
-function starsOf(heat) {
-  if (heat <= 1) return 0;
-  return Math.min(5, Math.ceil(heat / 25));
 }
 
 function losClear(city, x0, z0, x1, z1) {
@@ -72,13 +71,23 @@ export const wanted = {
   speedT: 0,
   cleanT: 0,
   overSpeed: false,
+  hiddenFor: 0,
+  coolFrom: 0,
   shownBounty: 0,
+  purse: 0,
+  crimeAt: 0,
   respawnIn: 2,
   hub: null,
   onBust: null,
   onEvade: null,
+  onPoliceWanted: null,
 
   bind(hub) { this.hub = hub; },
+
+  pullBadge() {
+    if (!career.state || career.state.role !== 'police' || this.stars <= 0 || !this.onPoliceWanted) return;
+    this.onPoliceWanted();
+  },
 
   msg(text, color) {
     if (this.hub && this.hub.msgs) this.hub.msgs.push({ text, t: 2.4, color: color || '#ff3b6b' });
@@ -96,6 +105,9 @@ export const wanted = {
     this.speedT = 0;
     this.cleanT = 0;
     this.overSpeed = false;
+    this.hiddenFor = 0;
+    this.coolFrom = 0;
+    this.purse = 0;
     this.shownBounty = 0;
     this.respawnIn = 2;
   },
@@ -104,6 +116,11 @@ export const wanted = {
     this.peak = 0;
     this.heat = 0;
     this.stars = 0;
+    this.hiddenFor = 0;
+    this.coolFrom = 0;
+    this.purse = 0;
+    this.shownBounty = 0;
+    if (career.state && career.state.wanted) career.state.wanted.bounty = 0;
     this.clearUnits();
   },
 
@@ -111,11 +128,13 @@ export const wanted = {
   capture() {
     if (!career.state) return;
     const prev = (career.state.wanted && typeof career.state.wanted === 'object') ? career.state.wanted : {};
-    career.state.wanted = {
+    const bounty = Math.max(0, Math.min(BOUNTY_CAP, Math.round(this.purse || Number(prev.bounty) || 0)));
+    career.state.wanted = Object.assign({}, prev, {
       heat: this.heat || 0,
       stars: this.stars || 0,
-      peak: Math.max(Number(prev.peak) || 0, this.peak || 0, this.stars || 0)
-    };
+      peak: Math.max(Number(prev.peak) || 0, this.peak || 0, this.stars || 0),
+      bounty: bounty
+    });
   },
   restore() {
     this.clearUnits();
@@ -123,18 +142,69 @@ export const wanted = {
     this.heat = Math.max(0, Number(w && w.heat) || 0);
     this.stars = starsOf(this.heat);
     this.peak = Math.max(Number(w && w.peak) || 0, this.stars);
+    this.purse = Math.max(0, Math.min(BOUNTY_CAP, Math.round(Number(w && w.bounty) || 0)));
     this.seen = false;
     this.bustT = 0;
-    this.shownBounty = this.stars > 0 ? this.bounty() : 0;
-    if (career.state) career.state.wanted = { heat: this.heat, stars: this.stars, peak: this.peak };
-    if (this.stars > 0) this._ensureCops();
+    this.hiddenFor = 0;
+    this.coolFrom = this.heat;
+    this.shownBounty = this.bounty();
+    if (this.stars > 0) {
+      this.pullBadge();
+      this._ensureCops();
+    }
+  },
+
+  _addStarBounty(from, to) {
+    if (!career.state) return;
+    const role = career.state.role || 'neutral';
+    if (role === 'police') return;
+    let add = 0;
+    for (let k = (from | 0) + 1; k <= (to | 0); k++) add += starPay(k, role);
+    if (!(add > 0)) return;
+    const cur = Math.max(0, Math.round(this.purse || 0));
+    const next = Math.min(BOUNTY_CAP, cur + add);
+    if (next === cur) return;
+    this.purse = next;
+    this.shownBounty = next;
+    if (!career.state.wanted || typeof career.state.wanted !== 'object') career.state.wanted = {};
+    career.state.wanted.bounty = next;
+    this.msg((to > 1 ? to + ' stars' : '1 star') + ' — bounty +$' + (next - cur), '#fff');
+    if (window.parent && window.parent !== window) {
+      try { window.parent.postMessage({ type: 'rl-stars', stars: to, role: role }, '*'); } catch (e) { /* parent owns the server call */ }
+    }
+  },
+
+  addCrime(kind) {
+    if (!career.state) return 0;
+    const role = career.state.role || 'neutral';
+    if (role === 'police') return 0;
+    const amt = crimePay(kind);
+    if (!(amt > 0)) return 0;
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - (this.crimeAt || 0) < 1000) return 0;
+    this.crimeAt = now;
+    const cur = Math.max(0, Math.round(this.purse || 0));
+    const next = Math.min(BOUNTY_CAP, cur + amt);
+    const gained = next - cur;
+    if (!(gained > 0)) return 0;
+    this.purse = next;
+    this.shownBounty = next;
+    if (!career.state.wanted || typeof career.state.wanted !== 'object') career.state.wanted = {};
+    career.state.wanted.bounty = next;
+    const label = kind === 'pedestrian' ? 'Pedestrian' : kind === 'wreck' ? 'Wreck' : 'Ram';
+    this.msg(label + ' — bounty +$' + gained, '#fff');
+    if (window.parent && window.parent !== window) {
+      try { window.parent.postMessage({ type: 'rl-crime', kind: kind }, '*'); } catch (e) { /* parent owns the server call */ }
+    }
+    return gained;
   },
 
   /** One-shot offenses. Speeding is metered in update so a short burst barely counts. */
   offense(kind, amount, opt) {
-    const role = (career.state && career.state.role) || 'neutral';
-    if (role === 'police' || !career.state) return;
+    if (!career.state) return;
+    const role = career.state.role || 'neutral';
     opt = opt || {};
+    if (role === 'police' && opt.duty) return;
     let a = amount;
     if (!(a > 0)) return;
     if (role === 'criminal') {
@@ -143,7 +213,15 @@ export const wanted = {
     }
     // A nudge is not a felony. Grazes contribute a fraction of a point.
     if (a < 1) a *= 0.45;
+    if (this.coolFrom > this.heat) this.heat = this.coolFrom;
+    this.hiddenFor = 0;
+    const beforeStars = this.stars;
     this.heat = Math.min(HEAT_MAX, this.heat + a);
+    if (kind === 'robbery') {
+      const need = starThreshold(beforeStars + 1);
+      if (this.heat < need) this.heat = Math.min(HEAT_MAX, need);
+    }
+    this.coolFrom = this.heat;
     this.cleanT = 0;
     if (kind === 'red' && career.state.totals) career.state.totals.redLights = (career.state.totals.redLights || 0) + 1;
     if (!opt.quiet && a >= 2) {
@@ -155,21 +233,20 @@ export const wanted = {
       if (label && kind !== 'red' && kind !== 'traffic' && kind !== 'cop') this.msg(label, '#ff8a2e');
     }
     this._sync();
+    if (role === 'police' && this.stars > 0) this.pullBadge();
   },
 
-  /** Live escape purse. Climbs with heat, so the HUD number moves before the next star. */
+  /** Standing bounty. Heat can fall. This number does not, until a bust. */
   bounty() {
     if (!career.state) return 0;
-    if (this.heat <= 1 && this.stars <= 0) return 0;
-    const role = career.state.role || 'neutral';
-    const stars = Math.max(this.stars, 1);
-    const base = Math.round(60 + this.heat * 4.5 + stars * 50);
-    return Math.round(base * (role === 'criminal' ? 1.45 : 1));
+    if ((career.state.role || 'neutral') === 'police') return 0;
+    return Math.max(0, Math.min(BOUNTY_CAP, Math.round(this.purse || 0)));
   },
 
   update(dt, player, city) {
     if (!player || !city || !career.state) return;
-    const role = career.state.role || 'neutral';
+    this.pullBadge();
+    let role = career.state.role || 'neutral';
     const lot = lotAt(city, player.x, player.z);
     if (role !== 'police') {
       const limitKmh = role === 'criminal' ? 80 : 118;
@@ -196,19 +273,25 @@ export const wanted = {
     } else this.overSpeed = false;
 
     if (!this.overSpeed) this.cleanT += dt;
-    // Clean driving sheds heat even before a star. Hiding (below) sheds it faster.
-    if (this.heat > 0 && this.cleanT > 1.15 && !this.overSpeed) {
-      const ghost = role === 'criminal' && rankOf('criminal') >= 4 ? 1.2 : 0;
-      this.heat = Math.max(0, this.heat - (2.15 + ghost) * dt);
+    // Stars do not cool while they are on the board. Only the hide cooldown drops one.
+    if (this.stars <= 0 && this.heat > 0 && this.cleanT > 1.15 && !this.overSpeed) {
+      const king = role === 'criminal' && rankOf('criminal') >= 4;
+      let rate = 2;
+      if (role === 'criminal' && !king) rate *= 0.78;
+      this.heat = Math.max(0, this.heat - rate * dt);
     }
     this._sync();
-    if (this.stars > 0) this.shownBounty = this.bounty();
+    this.pullBadge();
+    this.shownBounty = this.bounty();
     if (this.stars <= 0) {
       this.seen = false;
+      this.hiddenFor = 0;
       if (this.cops.length) this._ensureCops();
       clearFoot(this);
+      updateSight(this, dt, player, city);
       return;
     }
+    if (this.beats && this.beats.length) clearSight(this);
 
     this._driveCops(dt, player, city);
     this._hazards(dt, player, city);
@@ -229,10 +312,24 @@ export const wanted = {
     }
     if (this.stars >= 5 && this.heli && this.heliSearch < 2.4) seen = true;
     this.seen = seen;
-    if (!seen && (player.speed < 8 || lot)) {
-      const ghost = role === 'criminal' && rankOf('criminal') >= 4;
-      const rate = (lot ? 8 : 5) + (ghost ? 1.5 : 0);
-      this.heat = Math.max(0, this.heat - rate * dt);
+    if (seen) {
+      if (this.coolFrom > this.heat) this.heat = this.coolFrom;
+      this.hiddenFor = 0;
+    } else if (this.stars > 0) {
+      if (this.hiddenFor <= 0) this.coolFrom = this.heat;
+      const king = role === 'criminal' && rankOf('criminal') >= 4;
+      const slow = (role === 'criminal' && !king) ? 0.78 : 1;
+      this.hiddenFor += dt * slow;
+      const need = this._hideNeed();
+      const floor = this._bandFloor(this.stars);
+      if (need > 0 && this.hiddenFor >= need) {
+        this.heat = Math.max(0, floor - 0.02);
+        this.hiddenFor = 0;
+        this.coolFrom = this.heat;
+      } else if (need > 0 && this.coolFrom > floor) {
+        const t = this.hiddenFor / need;
+        this.heat = Math.max(floor, this.coolFrom + (floor - this.coolFrom) * t);
+      }
     }
     const want = copTarget(this.stars, this.heat);
     if (this.cops.length < want) {
@@ -246,13 +343,37 @@ export const wanted = {
     const touch = this.cops.some((c) => !c.dismounted && Math.hypot(player.x - c.x, player.z - c.z) < 4.7);
     if (touch && !player.onFoot) this.bustT += dt;
     else this.bustT = Math.max(0, this.bustT - dt * 0.6);
+    const starsBefore = this.stars;
     if (this.bustT > 1.25) this._bust(player, city);
     else this._sync();
+    if (this.stars > 0 && this.stars < starsBefore) this.msg('Star dropped — stay hidden', '#fff');
     updateFoot(this, dt, player, city);
+  },
+
+  _bandFloor(stars) {
+    return starThreshold(Math.max(0, stars | 0));
+  },
+
+  _hideNeed() {
+    const base = hideSeconds(this.stars);
+    const role = (career.state && career.state.role) || 'neutral';
+    const ghost = role === 'criminal' && rankOf('criminal') >= 4;
+    return ghost ? base * 0.85 : base;
+  },
+
+  /** White HUD line. HIDDEN counts down. COOLDOWN is the full wait while they can see you. */
+  cooldownLabel() {
+    if (this.stars <= 0) return '';
+    const need = this._hideNeed();
+    const hiding = !this.seen;
+    const left = hiding ? Math.max(0, need - this.hiddenFor) : need;
+    const clock = formatCooldown(left);
+    return hiding ? ('HIDDEN ' + clock) : ('COOLDOWN ' + clock);
   },
 
   present(dt) {
     presentFoot(this);
+    presentSight(this);
     const night = 1;
     for (const c of this.cops) {
       if (!c.mesh) continue;
@@ -275,8 +396,10 @@ export const wanted = {
     const next = starsOf(this.heat);
     if (next === this.stars) return;
     if (next > this.stars) {
+      const prev = this.stars | 0;
       this.stars = next;
       this.peak = Math.max(this.peak, next);
+      this._addStarBounty(prev, next);
       if (career.state) {
         career.state.totals.peakStars = Math.max(career.state.totals.peakStars || 0, next);
         career.checkAchievements();
@@ -310,13 +433,41 @@ export const wanted = {
     }
   },
 
+  _farSpot(player, index) {
+    const city = this.hub && this.hub.city;
+    const pitch = 86, half = 3, extent = half * pitch;
+    const minD = 90;
+    let best = null;
+    const consider = (x, z) => {
+      if (!city || !city.isRoad(x, z)) return;
+      const d = Math.hypot(x - player.x, z - player.z);
+      if (d < minD) return;
+      const score = d + ((index * 13 + Math.round(x / 10) + Math.round(z / 7)) % 9) * 4;
+      if (!best || score > best.score) best = { x: x, z: z, d: d, score: score };
+    };
+    if (city) {
+      for (let i = -half; i <= half; i++) {
+        for (let t = -extent; t <= extent; t += 28) {
+          consider(t, i * pitch);
+          consider(i * pitch, t);
+        }
+      }
+    }
+    if (best) return best;
+    if (city && city.nearestRoad) {
+      const road = city.nearestRoad(player.x + minD, player.z - minD);
+      const d = Math.hypot(road.x - player.x, road.z - player.z);
+      return { x: road.x, z: road.z, d: d };
+    }
+    return { x: player.x + minD, z: player.z, d: minD };
+  },
+
   _spawnCop(player, index) {
     const mesh = buildCar('Coupe', { color: '#16315f', rims: 0, decal: 'stripes', siren: true }, { lights: true });
     gfx.world.add(mesh);
-    const side = index === 0 ? 0 : (index % 2 === 0 ? 1 : -1) * (7 + index * 2);
-    const back = 34 + index * 9;
-    const rx = Math.cos(player.h), rz = -Math.sin(player.h);
-    const stars = Math.max(1, this.stars);
+    const spot = this._farSpot(player, index);
+    const stars = Math.max(1, Math.min(5, this.stars));
+    const face = Math.atan2(player.x - spot.x, player.z - spot.z);
     const cop = blankVehicle({
       mesh, name: 'Police',
       p: physFromStats({
@@ -327,9 +478,9 @@ export const wanted = {
         nitro: 24,
         durability: 70
       }),
-      x: player.x - Math.sin(player.h) * back + rx * side,
-      z: player.z - Math.cos(player.h) * back + rz * side,
-      h: player.h,
+      x: spot.x,
+      z: spot.z,
+      h: face,
       nitro: 40
     });
     this.cops.push(cop);
@@ -340,11 +491,29 @@ export const wanted = {
     const n = this.cops.length;
     this.cops.forEach((cop, i) => {
       if (cop.dismounted) return;
-      const ahead = i === 0 ? lead : lead + 8;
+      const ahead = i === 0 ? Math.min(18, lead) : Math.min(22, lead + 8);
       const side = (i - (n - 1) / 2) * 5.5;
-      const tx = player.x + Math.sin(player.h) * ahead + Math.cos(player.h) * side;
-      const tz = player.z + Math.cos(player.h) * ahead - Math.sin(player.h) * side;
-      const cap = COP_CAP[this.stars] || COP_CAP[1];
+      let tx = player.x + Math.sin(player.h) * ahead + Math.cos(player.h) * side;
+      let tz = player.z + Math.cos(player.h) * ahead - Math.sin(player.h) * side;
+      const cap = COP_CAP[Math.min(5, Math.max(1, this.stars))] || COP_CAP[1];
+      if (cop.stuckT > 1.05 && !cop.way) {
+        const spin = ((cop.unstuck || 0) % 4) * (Math.PI / 2);
+        const ang = (cop.h || 0) + Math.PI + spin;
+        const reach = 18 + ((cop.unstuck || 0) % 3) * 8;
+        const road = city.nearestRoad(cop.x + Math.sin(ang) * reach, cop.z + Math.cos(ang) * reach);
+        cop.way = { x: road.x, z: road.z };
+        cop.wayT = 0;
+        cop.unstuck = (cop.unstuck || 0) + 1;
+      }
+      if (cop.way) {
+        tx = cop.way.x;
+        tz = cop.way.z;
+        cop.wayT = (cop.wayT || 0) + dt;
+        if (Math.hypot(cop.x - tx, cop.z - tz) < 4 || cop.wayT > 3.2) {
+          cop.way = null;
+          cop.stuckT = 0;
+        }
+      }
       const inp = seekInput(cop, tx, tz, cap);
       inp.nitro = this.stars >= 4 && cop.nitro > 12 && Math.hypot(tx - cop.x, tz - cop.z) > 24;
       cop.offroad = !city.isRoad(cop.x, cop.z);
@@ -364,10 +533,7 @@ export const wanted = {
           wrecks.boom(cop.x, 0.5, cop.z, this.hub && this.hub.fx);
         }
       }
-      if (cop.stuckT > 1.8) {
-        const road = city.nearestRoad(player.x - Math.sin(player.h) * 20, player.z - Math.cos(player.h) * 20);
-        cop.x = road.x; cop.z = road.z; cop.h = player.h; cop.vx = cop.vz = 0; cop.stuckT = 0;
-      }
+      /* Stuck cruisers reverse toward a road point. They are never moved by hand. */
     });
     if (this.cops.some((c) => c.exploded)) {
       const gone = this.cops.filter((c) => c.exploded);
@@ -532,6 +698,11 @@ export const wanted = {
     this.heat = 0;
     this.peak = 0;
     this.stars = 0;
+    this.hiddenFor = 0;
+    this.coolFrom = 0;
+    this.purse = 0;
+    this.shownBounty = 0;
+    if (career.state && career.state.wanted) career.state.wanted.bounty = 0;
     this.bustT = 0;
     this.clearUnits();
     career.checkAchievements();
@@ -543,23 +714,26 @@ export const wanted = {
   _evade() {
     const peak = this.peak;
     this.peak = 0;
+    this.heat = 0;
+    this.stars = 0;
+    this.hiddenFor = 0;
+    this.coolFrom = 0;
     this.clearUnits();
     const role = career.state.role || 'neutral';
-    const pay = this.shownBounty || Math.round((90 + peak * 80) * (role === 'criminal' ? 1.45 : 1));
-    this.shownBounty = 0;
-    career.addMoney(pay);
+    const kept = this.bounty();
     career.state.respect += peak;
     career.state.totals.escapes = (career.state.totals.escapes || 0) + 1;
     if (peak >= 4) career.state.totals.evadesHigh = (career.state.totals.evadesHigh || 0) + 1;
     if (role === 'criminal') career.state.roleXp.criminal = (career.state.roleXp.criminal || 0) + 8 + peak * 2;
     career.checkAchievements();
     career.save();
-    this.msg('Lost them. +$' + pay + ' · +' + peak + ' rep', '#7dff5a');
+    this.msg(kept > 0 ? 'Lost them. Bounty stays $' + kept : 'Lost them. +' + peak + ' rep', '#fff');
     if (this.onEvade) this.onEvade(peak);
   },
 
   clearUnits() {
     clearFoot(this);
+    clearSight(this);
     for (const c of this.cops) if (c.mesh) { gfx.world.remove(c.mesh); disposeCar(c.mesh); }
     this.cops = [];
     this._removeHeli();
@@ -582,6 +756,7 @@ export const wanted = {
   meshes() {
     const out = this.cops.map((c) => c.mesh).filter(Boolean);
     for (const m of footMeshes(this)) out.push(m);
+    for (const m of sightMeshes(this)) out.push(m);
     if (this.heli) out.push(this.heli);
     if (this.propGroup) out.push(this.propGroup);
     return out;

@@ -1,6 +1,6 @@
 /* The only release version. The main menu and the zip builders read RL_VERSION.
    Do not copy this string into another file. */
-var RL_VERSION = '1.2.3';
+var RL_VERSION = '1.2.4';
 
 function RL_applyVersion() {
   var el = typeof document !== 'undefined' && document.getElementById('game-version');

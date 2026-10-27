@@ -265,11 +265,13 @@ RL.UI = (function () {
   function sellPrice(p) { return G().sellPrice(p); }
 
   /* ---------------- Shop ---------------- */
-  function showShop(tab) {
+  function showShop(tab, place) {
     const shopTab = (tab === 'parts' || tab === 'sell' || tab === 'cars') ? tab : 'cars';
+    const placeId = (place && RL.Jobs && RL.Jobs.isShop(place)) ? place : null;
     const v = { title: '🛒 Shop', tab: shopTab, render: () => {
       const s = S(), pm = G().priceMult();
-      let h = tabs(v, [['cars', 'Cars'], ['parts', 'Parts'], ['sell', 'Sell']]) + '<p class="small">Cash: <b class="hl">' + RL.fmtMoney(s.money) + '</b>' + (pm < 1 ? ' · discount ' + Math.round((1 - pm) * 100) + '% (respect/perks)' : '') + '</p>';
+      const tax = (RL.Roles && RL.Roles.buyMod && RL.Roles.buyMod() > 1) ? ' · street tax 12%' : '';
+      let h = (placeId && RL.Jobs ? RL.Jobs.card(placeId) : '') + tabs(v, [['cars', 'Cars'], ['parts', 'Parts'], ['sell', 'Sell']]) + '<p class="rob-line">Cash: <b class="hl">' + RL.fmtMoney(s.money) + '</b>' + (pm < 1 ? ' · discount ' + Math.round((1 - pm) * 100) + '% (respect/perks)' : '') + tax + '</p>';
       if (v.tab === 'cars') {
         h += RL.CARS.map((c) => {
           const owned = s.cars.some((x) => x.id === c.id), locked = c.league > s.league, price = c.price > 0 ? G().buyPrice(c.price) : 0;
@@ -307,7 +309,8 @@ RL.UI = (function () {
         if (!(price > 0) || S().money < price) return RL.Audio.play('error');
         G().addMoney(-price); S().inventory.push(p); RL.Audio.play('coin'); toast('Bought ' + p.name + ' - equip it in the Garage'); G().checkAchievements(); needSave();
       },
-      sell: (uid) => { const price = G().sellPart(uid); if (price == null) { RL.Audio.play('error'); return; } RL.Audio.play('coin'); needSave(); }
+      sell: (uid) => { const price = G().sellPart(uid); if (price == null) { RL.Audio.play('error'); return; } RL.Audio.play('coin'); needSave(); },
+      robbery: () => { if (placeId && RL.Jobs) RL.Jobs.rob(placeId); }
     } };
     open(v);
   }
@@ -328,7 +331,7 @@ RL.UI = (function () {
       leagues.push(['side', 'Side Events']);
       leagues.push(['free', 'Free Play']);
       let h = '<div class="card"><div><b>🌐 Online race</b><div class="small">Host a room or join with a 4-character code. 2–6 racers, AI fills the rest. Custom and community tracks are on the host list.</div></div><div class="btns"><button data-act="online">Multiplayer</button></div></div>';
-      h += '<div class="card"><div><b>🏙️ City servers</b><div class="small">Public Downtown rooms. Drive with other players, names, and wanted stars. Police can bust criminals. Google sign-in posts to the bounty board.</div></div><div class="btns"><button data-act="servers">Servers</button></div></div>';
+      h += '<div class="card"><div><b>🏙️ City servers</b><div class="small">Public Downtown rooms. Drive with other players, names, and wanted stars. Cops bust criminals and wanted drivers and claim their bounty. Google sign-in posts that bust to the board.</div></div><div class="btns"><button data-act="servers">Servers</button></div></div>';
       h += tabs(v, leagues);
       if (v.tab === 'free') {
         const nCustom = RL.Tracks ? RL.Tracks.allCustom().length : 0;

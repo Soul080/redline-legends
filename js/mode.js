@@ -152,7 +152,16 @@ RL.Mode = (function () {
     window.addEventListener('message', (e) => {
       const frame = frameEl();
       if (!frame || e.source !== frame.contentWindow) return;
-      if (!e.data || e.data.type !== 'rl-toggle-view') return;
+      if (!e.data) return;
+      if (e.data.type === 'rl-crime' && RL.Servers && RL.Servers.noteCrime) {
+        RL.Servers.noteCrime(e.data.kind);
+        return;
+      }
+      if (e.data.type === 'rl-stars' && RL.Servers && RL.Servers.noteStars) {
+        RL.Servers.noteStars(e.data.stars, e.data.role);
+        return;
+      }
+      if (e.data.type !== 'rl-toggle-view') return;
       toggle();
     });
     if (current() === '3d') apply('3d');

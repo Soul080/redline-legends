@@ -15,12 +15,24 @@ RL.Pursuit = (function () {
   const COUPE = { max: 200 + 42 * 1.35, accel: 220 + 42 * 1.5, turn: 2.15 + 48 * 0.012 };
 
   function countFor(stars) {
-    const n = Math.max(0, Math.min(5, stars | 0));
-    return COUNT[n];
+    const n = Math.max(0, stars | 0);
+    if (n <= 0) return 0;
+    if (n <= 5) return COUNT[n];
+    return Math.min(8, COUNT[5] + (n >= 9 ? 1 : 0));
   }
   function profile(stars) {
-    const n = Math.max(1, Math.min(5, stars | 0));
-    return PROFILES[n];
+    const n = Math.max(1, stars | 0);
+    if (n <= 5) return PROFILES[n];
+    const base = PROFILES[5];
+    const extra = Math.min(3, n - 5);
+    return {
+      top: Math.min(COUPE.max - 4, base.top + extra * 0.4),
+      accel: base.accel + extra * 3,
+      turn: Math.min(COUPE.turn - 0.2, base.turn + extra * 0.03),
+      react: Math.max(0.08, base.react - extra * 0.005),
+      grip: base.grip + extra * 0.05,
+      predict: Math.min(0.9, base.predict + extra * 0.02)
+    };
   }
   function angDiff(a, b) {
     let d = a - b;

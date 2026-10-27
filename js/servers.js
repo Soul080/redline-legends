@@ -44,14 +44,36 @@ RL.Servers = (function () {
     if (!Number.isFinite(v) || v < 1) return 0;
     return v > 5 ? 5 : v;
   }
-  /* Server-side formulas live in claim_bounty / claim_bust. Mirror them here
-     so a bad response cannot pay more than the SQL clamp. */
+  /* Server-side formulas live in raise_bounty, report_crime, and claim_bust.
+     Mirror them here so a bad response cannot pay more than the SQL clamp.
+     A bust pays the target's stored bounty, not a number the client invents. */
+  const BOUNTY_CAP = 5000;
   function payout(kind, stars, role) {
+    if (kind === 'pedestrian' || kind === 'ram' || kind === 'wreck') {
+      return RL.Heat && RL.Heat.crimePay ? RL.Heat.crimePay(kind) : 0;
+    }
+    if (kind === 'bust') {
+      const n = Math.round(Number(stars) || 0);
+      if (!Number.isFinite(n) || n < 1) return 0;
+      return Math.min(BOUNTY_CAP, n);
+    }
     const s = clampStars(stars);
     if (s < 1) return 0;
-    if (kind === 'bust') return Math.min(1250, 500 + s * 150);
     if (role === 'criminal') return Math.min(1015, Math.round(140 * s * 1.45));
     return Math.min(1015, 140 * s);
+  }
+  function isUuid(id) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''));
+  }
+  function clampBounty(n) {
+    const v = Math.round(Number(n) || 0);
+    if (!Number.isFinite(v) || v < 0) return 0;
+    return v > BOUNTY_CAP ? BOUNTY_CAP : v;
+  }
+  function canBust(person) {
+    if (!person || person.role === 'police') return false;
+    if (person.role === 'criminal') return true;
+    return (person.stars || 0) >= 1 || (person.bounty || 0) > 0;
   }
   function cleanColor(c) { return /^#[0-9a-fA-F]{3,8}$/.test(String(c || '')) ? String(c) : '#ff3b6b'; }
   function cleanCoord(n) {
@@ -88,6 +110,9 @@ RL.Servers = (function () {
     let stars = 0;
     try { stars = RL.Wanted && RL.Wanted.stars ? RL.Wanted.stars() : 0; } catch (e) { stars = 0; }
     stars = clampStars(stars);
+    let bounty = 0;
+    try { bounty = RL.Wanted && RL.Wanted.liveBounty ? RL.Wanted.liveBounty() : 0; } catch (e2) { bounty = 0; }
+    bounty = role === 'police' ? 0 : clampBounty(bounty);
     let color = '#ff3b6b';
     try {
       const car = RL.Game && RL.Game.currentCar && RL.Game.currentCar();
@@ -99,7 +124,7 @@ RL.Servers = (function () {
       name: name,
       role: role,
       stars: stars,
-      bounty: role === 'police' ? 0 : payout('evade', stars, role),
+      bounty: bounty,
       x: h ? Number(h.x) || 0 : 0,
       y: h ? Number(h.y) || 0 : 0,
       h: h ? Number(h.h) || 0 : 0,
@@ -150,6 +175,7 @@ RL.Servers = (function () {
     else if (!fromPose && meta.name) remote.name = 'Racer';
     if (meta.role === 'police' || meta.role === 'criminal' || meta.role === 'neutral') remote.role = meta.role;
     if (meta.stars != null) remote.stars = clampStars(meta.stars);
+    if (meta.bounty != null && Number.isFinite(Number(meta.bounty))) remote.bounty = remote.role === 'police' ? 0 : clampBounty(meta.bounty);
     if (meta.guest != null) remote.guest = !!meta.guest;
     if (meta.color) remote.color = cleanColor(meta.color);
     if (meta.siren != null) remote.siren = !!meta.siren;
@@ -160,7 +186,7 @@ RL.Servers = (function () {
       if (Number.isFinite(Number(meta.speed))) remote.speed = Math.max(-500, Math.min(500, Number(meta.speed)));
       pushSample(remote, remote.x, remote.y, remote.h, remote.speed);
     }
-    remote.bounty = remote.role === 'police' ? 0 : payout('evade', remote.stars, remote.role);
+    if (remote.role === 'police') remote.bounty = 0;
     remote.seen = Date.now();
   }
 
@@ -192,7 +218,7 @@ RL.Servers = (function () {
     const sender = remotes.get(payload.from);
     const me = selfPlayer();
     if (!sender || sender.role !== 'police') return;
-    if (me.role !== 'criminal' || me.stars < 1) return;
+    if (!canBust(me)) return;
     if (Math.hypot((sender.x || 0) - me.x, (sender.y || 0) - me.y) > 80) return;
     try { if (RL.Wanted && RL.Wanted.bust) RL.Wanted.bust(); } catch (e) { /* wanted owns the impound */ }
   }
@@ -215,7 +241,7 @@ RL.Servers = (function () {
 
   function presencePayload() {
     const me = selfPlayer();
-    return { name: me.name, role: me.role, stars: me.stars, color: me.color, guest: me.guest, x: me.x, y: me.y, h: me.h, speed: me.speed, siren: me.siren };
+    return { name: me.name, role: me.role, stars: me.stars, bounty: me.bounty, color: me.color, guest: me.guest, x: me.x, y: me.y, h: me.h, speed: me.speed, siren: me.siren };
   }
   function trackPresence() {
     if (!channel || !channel.track || !roomId) return Promise.resolve();
@@ -230,7 +256,7 @@ RL.Servers = (function () {
       channel.send({
         type: 'broadcast',
         event: 'pose',
-        payload: { id: me.id, name: me.name, role: me.role, stars: me.stars, guest: me.guest, color: me.color, siren: me.siren, x: me.x, y: me.y, h: me.h, speed: me.speed, t: Date.now() }
+        payload: { id: me.id, name: me.name, role: me.role, stars: me.stars, bounty: me.bounty, guest: me.guest, color: me.color, siren: me.siren, x: me.x, y: me.y, h: me.h, speed: me.speed, t: Date.now() }
       });
     } catch (e) { /* a dropped pose is replaced by the next one */ }
   }
@@ -244,7 +270,7 @@ RL.Servers = (function () {
     if (me.role !== 'police' || Math.abs(me.speed) >= 90) { pinId = null; pinT = 0; return; }
     let target = null;
     remotes.forEach((remote) => {
-      if (target || remote.role !== 'criminal' || remote.stars < 1) return;
+      if (target || !canBust(remote)) return;
       if (Math.hypot(remote.x - me.x, remote.y - me.y) < 32) target = remote;
     });
     if (!target) { pinId = null; pinT = 0; return; }
@@ -255,11 +281,10 @@ RL.Servers = (function () {
     const last = recentBust.get(target.id) || 0;
     if (Date.now() - last < 8000) return;
     recentBust.set(target.id, Date.now());
-    const stars = target.stars;
     try {
-      channel.send({ type: 'broadcast', event: 'bust', payload: { from: me.id, target: target.id, stars: stars } });
+      channel.send({ type: 'broadcast', event: 'bust', payload: { from: me.id, target: target.id, stars: target.stars, bounty: target.bounty } });
     } catch (e) { /* the reward still goes through the RPC */ }
-    grantBust(stars, target.name);
+    grantBust(target);
   }
 
   function tick(dt) {
@@ -277,16 +302,19 @@ RL.Servers = (function () {
     if (RL.Game && RL.Game.mode === 'hub') tickBust(dt);
   }
 
-  async function claim(kind, stars, role) {
+  async function claim(kind, stars, role, targetId) {
     const cleanRole = role === 'criminal' ? 'criminal' : (role === 'police' ? 'police' : 'neutral');
     const cleanStars = clampStars(stars);
-    const capPay = payout(kind === 'bust' ? 'bust' : 'evade', cleanStars, cleanRole);
-    if (cleanStars < 1) return { ok: false, reason: 'nostars', money: 0, capped: 0 };
+    const busting = kind === 'bust';
+    const capPay = busting ? BOUNTY_CAP : payout('evade', cleanStars, cleanRole);
+    if (!busting && cleanStars < 1) return { ok: false, reason: 'nostars', money: 0, capped: 0 };
+    if (busting && !isUuid(targetId)) return { ok: false, reason: 'target', money: 0, capped: 0 };
     const prof = RL.Auth.profile();
     if (!prof || prof.guest) return { ok: false, reason: 'guest', money: 0, capped: capPay };
+    if (busting && targetId === prof.id) return { ok: false, reason: 'self', money: 0, capped: 0 };
     if (!RL.Auth.configured()) return { ok: false, reason: 'unconfigured', money: 0, capped: capPay };
-    const fn = kind === 'bust' ? 'claim_bust' : 'claim_bounty';
-    const args = kind === 'bust' ? { p_stars: cleanStars } : { p_stars: cleanStars, p_role: cleanRole === 'criminal' ? 'criminal' : 'neutral' };
+    const fn = busting ? 'claim_bust' : 'claim_bounty';
+    const args = busting ? { p_target: targetId } : { p_stars: cleanStars, p_role: cleanRole === 'criminal' ? 'criminal' : 'neutral' };
     const data = await RL.Auth.rpc(fn, args);
     if (!data || data.ok === false) {
       return { ok: false, reason: (data && data.reason) || 'offline', money: 0, capped: capPay, message: data && data.message };
@@ -296,40 +324,66 @@ RL.Servers = (function () {
     return { ok: true, money: money, bounty: Math.max(0, Math.round(Number(data.bounty) || 0)), capped: capPay, reason: 'ok' };
   }
 
-  function onEvade(stars, role) {
-    if (!RL.Auth || !RL.Auth.configured()) return;
-    if (role === 'police') return;
-    const starsN = clampStars(stars);
-    if (starsN < 1) return;
-    RL.Auth.boot().then(() => claim('evade', starsN, role)).then((res) => {
-      if (res && res.ok) toast('All-time bounty +' + RL.fmtMoney(res.money), '#7dff5a');
-    }).catch(() => { /* solo evade already paid on this device */ });
+  function noteCrime(kind) {
+    if (!RL.Auth || !RL.Auth.configured()) return Promise.resolve(null);
+    if (kind !== 'pedestrian' && kind !== 'ram' && kind !== 'wreck') return Promise.resolve(null);
+    const prof = RL.Auth.profile && RL.Auth.profile();
+    if (!prof || prof.guest) return Promise.resolve(null);
+    return RL.Auth.boot().then(() => RL.Auth.rpc('report_crime', { p_kind: kind })).then((data) => {
+      if (data && data.ok && RL.Wanted && RL.Wanted.raiseTo) RL.Wanted.raiseTo(data.bounty);
+      return data;
+    }).catch(() => null);
+  }
+  function noteStars(stars, role) {
+    if (!RL.Auth || !RL.Auth.configured()) return Promise.resolve(null);
+    const prof = RL.Auth.profile && RL.Auth.profile();
+    if (!prof || prof.guest) return Promise.resolve(null);
+    const cleanRole = role === 'criminal' ? 'criminal' : 'neutral';
+    const cleanStars = clampStars(stars);
+    if (cleanStars < 1 || role === 'police') return Promise.resolve(null);
+    return RL.Auth.boot().then(() => RL.Auth.rpc('raise_bounty', { p_stars: cleanStars, p_role: cleanRole })).then((data) => {
+      if (data && data.ok && RL.Wanted && RL.Wanted.raiseTo) RL.Wanted.raiseTo(data.bounty);
+      return data;
+    }).catch(() => null);
   }
 
-  function grantBust(stars, name) {
-    const cap = payout('bust', stars, 'criminal');
-    const label = RL.Auth.cleanNick(name) || 'a criminal';
-    claim('bust', stars, 'criminal').then((res) => {
-      if (!RL.Game || !RL.Game.addMoney) return;
-      if (res && res.ok) {
-        RL.Game.addMoney(res.money);
-        toast('Busted ' + label + ' +' + RL.fmtMoney(res.money), '#7dff5a');
-      } else if (res && res.reason === 'guest') {
-        RL.Game.addMoney(cap);
-        toast('Busted ' + label + ' +' + RL.fmtMoney(cap) + ' (not on the board)', '#7dff5a');
-      } else if (res && (res.reason === 'rate' || res.reason === 'cap')) {
-        toast('The bounty board already counted a recent claim.', '#ffe03b');
-        return;
-      } else {
-        RL.Game.addMoney(cap);
-        toast('Busted ' + label + ' +' + RL.fmtMoney(cap) + '. The leaderboard did not save it.', '#ffe03b');
-      }
+  function onEvade() {
+    /* A clean escape drops the stars. It does not pay or clear the bounty. */
+  }
+
+  function grantBust(target) {
+    const shown = clampBounty(target && target.bounty);
+    const label = RL.Auth.cleanNick(target && target.name) || 'a driver';
+    const book = () => {
       try {
         if (RL.Roles && RL.Roles.addXp) RL.Roles.addXp('police', 35);
         if (RL.Game.state && RL.Game.state.totals) RL.Game.state.totals.bustsAi = (RL.Game.state.totals.bustsAi || 0) + 1;
         if (RL.Game.unlockAch) RL.Game.unlockAch('sp_bust');
         if (RL.Game.event) RL.Game.event('bust', { peer: true });
       } catch (e) { /* career bookkeeping stays local */ }
+    };
+    const payLocal = (money, text) => {
+      if (money > 0 && RL.Game && RL.Game.addMoney) RL.Game.addMoney(money);
+      toast(text, '#fff');
+      book();
+    };
+    if (!target || !isUuid(target.id)) {
+      payLocal(shown, shown > 0 ? 'Busted ' + label + ' +' + RL.fmtMoney(shown) + ' (not on the board)' : 'Busted ' + label);
+      return;
+    }
+    claim('bust', 0, 'police', target.id).then((res) => {
+      if (!RL.Game || !RL.Game.addMoney) return;
+      if (res && res.ok) {
+        payLocal(res.money, res.money > 0 ? 'Busted ' + label + ' +' + RL.fmtMoney(res.money) : 'Busted ' + label);
+      } else if (res && (res.reason === 'rate' || res.reason === 'cap')) {
+        toast('The bounty board already counted a recent claim.', '#fff');
+      } else if (res && (res.reason === 'guest' || res.reason === 'self' || res.reason === 'target')) {
+        payLocal(shown, shown > 0 ? 'Busted ' + label + ' +' + RL.fmtMoney(shown) + ' (not on the board)' : 'Busted ' + label);
+      } else if (res && res.reason === 'nobounty') {
+        payLocal(0, 'Busted ' + label);
+      } else {
+        payLocal(shown, shown > 0 ? 'Busted ' + label + ' +' + RL.fmtMoney(shown) + '. The leaderboard did not save it.' : 'Busted ' + label);
+      }
     }).catch(() => { /* the next heartbeat will retry presence, not the payout */ });
   }
 
@@ -464,6 +518,10 @@ RL.Servers = (function () {
     phase = 'live';
     note = '';
     sendAcc = SEND_EVERY;
+    try {
+      const me = selfPlayer();
+      if (me.stars >= 1) noteStars(me.stars, me.role);
+    } catch (e) { /* the next star still reports */ }
     if (RL.Game && RL.Game.mode !== 'hub') RL.Game.toHub();
     if (RL.UI && RL.UI.closeAll) RL.UI.closeAll();
     browsing = false;
@@ -532,7 +590,7 @@ RL.Servers = (function () {
     });
     h += '<div class="row"><button data-act="board">' + (showBoard ? 'Hide all-time board' : 'All-time bounty board') + '</button><button data-act="reload">Reload</button></div>';
     if (showBoard) {
-      h += '<h3>All-time bounty</h3><p class="small">Signed-in drivers only. Guests are not listed. Payouts are clamped by the database.</p>';
+      h += '<h3>All-time bounty</h3><p class="small">Signed-in drivers only. A cop claims the bounty the database has stored. Guests are not listed.</p>';
       if (!leaders.length) h += '<p class="dim">No bounty has been recorded yet.</p>';
       else {
         h += '<table class="standings"><tr><th>#</th><th>Name</th><th>Bounty</th><th>Busts</th></tr>';
@@ -648,13 +706,16 @@ RL.Servers = (function () {
           night: !!(RL.City && RL.City.dark && RL.City.dark() > 0.2)
         });
       }
-      const label = remote.name + (remote.stars > 0 ? ' ' + '★'.repeat(remote.stars) : '');
+      const label = remote.name + (remote.stars > 0 ? ' ' + '★'.repeat(remote.stars) : '') + (remote.bounty > 0 ? ' $' + remote.bounty : '');
       ctx.save();
       ctx.font = 'bold 11px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      ctx.fillStyle = remote.role === 'police' ? '#7aa2ff' : remote.role === 'criminal' ? '#ff3b6b' : '#ffe03b';
-      ctx.fillText(label, pose.x, pose.y - 20);
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = '#0c0816';
+      ctx.fillRect(pose.x - tw / 2 - 4, pose.y - 34, tw + 8, 14);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(label, pose.x, pose.y - 22);
       ctx.restore();
     });
   }
@@ -699,6 +760,8 @@ RL.Servers = (function () {
     rooms: roomRows,
     payout: payout,
     claim: claim,
+    noteCrime: noteCrime,
+    noteStars: noteStars,
     CAP: CAP,
     ROOMS: ROOMS.map((room) => ({ id: room.id, name: room.name, cap: room.cap })),
     configured: () => RL.Auth.configured(),

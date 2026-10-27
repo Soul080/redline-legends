@@ -56,7 +56,7 @@ RL.Game = {
       league: 1, progress: { 1: { races: [false, false, false], boss: false } },
       quests: { active: ['m1'], done: [] }, questCounters: {}, flags: {}, talked: {}, claimed: {}, storyQueue: [],
       roles: {}, role: 'neutral', roleXp: { neutral: 0, criminal: 0, police: 0 }, roleCooldownUntil: 0, iaStrikes: 0,
-      wanted: { heat: 0, stars: 0, peak: 0 }, found: {}, visited: { downtown: true }, clock: 10 * 60,
+      wanted: { heat: 0, stars: 0, peak: 0, bounty: 0 }, found: {}, visited: { downtown: true }, clock: 10 * 60,
       phone: { threads: {}, seen: {}, memory: {}, open: 'unknown' },
       dragPrefs: { half: false, stake: true, pink: false }, dragStake: null,
       customTracks: [], multiplayer: { name: '', room: '', status: 'offline' }, difficulty: 'normal',
@@ -178,11 +178,13 @@ RL.Game = {
     },
     3(s) {
       if (s.roles == null || typeof s.roles !== 'object' || Array.isArray(s.roles)) s.roles = {};
-      if (s.wanted == null || typeof s.wanted !== 'object' || Array.isArray(s.wanted)) s.wanted = { heat: 0, stars: 0, peak: 0 };
+      if (s.wanted == null || typeof s.wanted !== 'object' || Array.isArray(s.wanted)) s.wanted = { heat: 0, stars: 0, peak: 0, bounty: 0 };
       else {
         if (s.wanted.heat === undefined) s.wanted.heat = 0;
         if (s.wanted.stars === undefined) s.wanted.stars = 0;
         if (s.wanted.peak === undefined) s.wanted.peak = 0;
+        if (!Number.isFinite(Number(s.wanted.bounty)) || Number(s.wanted.bounty) < 0) s.wanted.bounty = 0;
+        else s.wanted.bounty = Math.min(5000, Math.round(Number(s.wanted.bounty)));
       }
       if (!s.role) s.role = 'neutral';
       if (!s.roleXp || typeof s.roleXp !== 'object' || Array.isArray(s.roleXp)) s.roleXp = { neutral: 0, criminal: 0, police: 0 };
@@ -395,6 +397,8 @@ RL.Game = {
       if (!s.flags.seen_boss4 && s.storyQueue.indexOf('boss4') < 0) s.storyQueue.push('boss4');
       if (!s.flags.seen_epilogue && s.storyQueue.indexOf('epilogue') < 0) s.storyQueue.push('epilogue');
     }
+    /* roleCooldownUntil is the real end (a badge pull is 5 minutes).
+       roleSwitchAt is that end minus 60s so the 3D city reads the same lock. */
     const now = Date.now();
     const until = Number(s.roleCooldownUntil) || 0;
     const from3 = (Number(s.roleSwitchAt) || 0) + 60000;
@@ -479,15 +483,18 @@ RL.Game = {
   sellPrice(p) {
     const value = this.partValue(p);
     if (!(value > 0)) return 0;
-    let sell = Math.round(value * 0.45 * (RL.hasPerk('haggler') ? 1.25 : 1));
-    const buy = Math.round(value * this.priceMult());
+    const cut = (RL.Roles && RL.Roles.sellMod) ? RL.Roles.sellMod() : 1;
+    const tax = (RL.Roles && RL.Roles.buyMod) ? RL.Roles.buyMod() : 1;
+    let sell = Math.round(value * 0.45 * (RL.hasPerk('haggler') ? 1.25 : 1) * cut);
+    const buy = Math.round(value * this.priceMult() * tax);
     if (buy > 0) sell = Math.min(sell, buy - 1);
     return Math.max(0, sell);
   },
   buyPrice(base) {
     const n = Number(base);
     if (!Number.isFinite(n) || n <= 0) return 0;
-    return Math.max(0, Math.round(n * this.priceMult()));
+    const tax = (RL.Roles && RL.Roles.buyMod) ? RL.Roles.buyMod() : 1;
+    return Math.max(0, Math.round(n * this.priceMult() * tax));
   },
   /* Effective car stats = base + equipped parts + tuning + perks (0..130 scale) */
   carStats(car) {
@@ -515,7 +522,8 @@ RL.Game = {
     const dmg = RL.clamp(car.damage, 0, 100);
     const def = this.carDef(car.id);
     const price = def && Number.isFinite(def.price) ? Math.max(0, def.price) : 0;
-    const cost = Math.round(dmg * (8 + price / 1500) * (RL.hasPerk('mechanic') ? 0.65 : 1));
+    const tax = (RL.Roles && RL.Roles.buyMod) ? RL.Roles.buyMod() : 1;
+    const cost = Math.round(dmg * (8 + price / 1500) * (RL.hasPerk('mechanic') ? 0.65 : 1) * tax);
     return Number.isFinite(cost) ? Math.max(0, cost) : 0;
   },
   /* Repair only ever spends cash. Negative or non-finite damage is wiped for free. */
@@ -920,6 +928,7 @@ RL.Game = {
     let last = performance.now(), acc = 0, saveTimer = 0;
     const STEP = 1 / 60;
     const frame = (now) => {
+      if (RL.Roles && RL.Roles.paintLock) RL.Roles.paintLock();
       if (document.body.classList.contains('view-3d')) {
         last = now;
         requestAnimationFrame(frame);

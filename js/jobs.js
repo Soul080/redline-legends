@@ -2,8 +2,83 @@
    These are discovered from city buildings and street NPCs and pay into role XP. */
 RL.Jobs = (function () {
   let rival = null, suspect = null;
+  const TILL_MS = 90000;
+  /* Retail counters. The bank and the hideouts stay on the longer heist. */
+  const SHOPS = {
+    shop: { name: 'Shop', pay: 280, heat: 56 },
+    mart: { name: 'Quick Mart', pay: 460, heat: 64 },
+    dealer: { name: 'Dealership', pay: 820, heat: 78 },
+    chandler: { name: 'Parts', pay: 340, heat: 58 },
+    scrap: { name: 'Scrap', pay: 200, heat: 52 },
+    customs: { name: 'Customs', pay: 500, heat: 70 },
+    gas: { name: 'Nitro Fuel', pay: 180, heat: 52 },
+    diner: { name: 'Mile Diner', pay: 150, heat: 52 }
+  };
 
   function S() { return RL.Game.state; }
+  function isShop(id) { return !!SHOPS[id]; }
+  function tills() {
+    const s = S();
+    if (!s) return {};
+    if (!s.tills || typeof s.tills !== 'object' || Array.isArray(s.tills)) s.tills = {};
+    return s.tills;
+  }
+  function readyIn(id) {
+    const until = Number(tills()[id]) || 0;
+    return Math.max(0, until - Date.now());
+  }
+  function payFor(id) {
+    const spec = SHOPS[id];
+    if (!spec) return 0;
+    let pay = spec.pay;
+    if (RL.Roles && RL.Roles.hasPerk && RL.Roles.hasPerk('fence')) pay = Math.round(pay * 1.3);
+    return pay;
+  }
+  function rob(id) {
+    const spec = SHOPS[id];
+    const s = S();
+    if (!spec || !s) return { ok: false, reason: 'none' };
+    const role = RL.Roles ? RL.Roles.current() : 'neutral';
+    if (role === 'police') {
+      if (RL.Roles) RL.Roles.infraction('robbery');
+      return { ok: false, reason: 'police' };
+    }
+    if (readyIn(id) > 0) {
+      RL.UI.toast(spec.name + ' till is empty.', '#fff');
+      return { ok: false, reason: 'empty' };
+    }
+    const pay = payFor(id);
+    RL.Game.addMoney(pay);
+    tills()[id] = Date.now() + TILL_MS;
+    if (RL.Wanted) RL.Wanted.report('robbery', { amount: spec.heat });
+    s.totals.heists = (s.totals.heists || 0) + 1;
+    if (RL.Roles) RL.Roles.addXp(role === 'criminal' ? 'criminal' : 'neutral', spec.pay >= 500 ? 22 : 12);
+    const stars = RL.Wanted ? RL.Wanted.stars() : 0;
+    const bounty = RL.Wanted ? RL.Wanted.liveBounty() : 0;
+    RL.UI.toast('Robbed ' + spec.name + ' +' + RL.fmtMoney(pay) + ' · ' + stars + ' star' + (stars === 1 ? '' : 's') + ' · bounty ' + RL.fmtMoney(bounty), '#fff');
+    try { RL.Audio.play('coin'); } catch (e) { }
+    if (RL.Game.unlockAch) RL.Game.unlockAch('sp_heist');
+    if (role === 'criminal') {
+      RL.Game.event('heist', { shop: id });
+      if (RL.Daily) RL.Daily.progress('heist', 1);
+    }
+    RL.Game.save();
+    return { ok: true, pay: pay, stars: stars, bounty: bounty };
+  }
+  function card(id) {
+    const spec = SHOPS[id];
+    if (!spec) return '';
+    const wait = readyIn(id);
+    const line = wait > 0 ? 'Till empty. Give it a minute.' : 'Take ' + RL.fmtMoney(payFor(id)) + '. Stars and bounty go up.';
+    return '<div class="card rob-card"><div><b>Rob the register</b><div class="rob-line">' + line + '</div></div><div class="btns"><button data-act="robbery"' + (wait > 0 ? ' disabled' : '') + '>Rob</button></div></div>';
+  }
+  function promptLine(id, moving) {
+    const spec = SHOPS[id];
+    if (!spec) return '';
+    if (moving) return 'Slow down · ' + spec.name;
+    if (readyIn(id) > 0) return 'E: ' + spec.name + ' · till empty';
+    return 'E: ' + spec.name + ' · C: Rob ' + RL.fmtMoney(payFor(id));
+  }
   function showRobbery(which) {
     const role = RL.Roles.current();
     const name = which === 'bank' ? 'Neon Bank' : 'Quick Mart';
@@ -11,11 +86,15 @@ RL.Jobs = (function () {
       title: which === 'bank' ? '🏦 Neon Bank' : '🏪 Quick Mart',
       render: () => {
         if (role === 'police') return '<p>The branch is quiet. You can stake it out, not stick it up — Internal Affairs is watching.</p><div class="row"><button data-act="back">Leave</button></div>';
-        if (role !== 'criminal') return '<p>' + name + ' keeps its shutters polite for civilians. Vick at the harbor hires people who have already chosen a side.</p>';
+        const till = which === 'mart' ? card('mart') : '';
+        if (role !== 'criminal') {
+          if (till) return till + '<p class="rob-line">The aisles are open. The register is the loud way out.</p>';
+          return '<p>' + name + ' keeps its shutters polite for civilians. Vick at the harbor hires people who have already chosen a side.</p>';
+        }
         const pay = which === 'bank' ? 1600 : 520;
-        return '<p>Crack the register and run. Heat will spike. Launder at Harbor Co. or just lose the tail — the fence pays more.</p><p class="small">Take about ' + RL.fmtMoney(pay) + (RL.Roles.hasPerk('fence') ? ' · fence bonus armed' : '') + '.</p><div class="row"><button class="primary" data-act="rob">Rob it</button></div>';
+        return till + '<p>Crack the register and run. Heat will spike. Launder at Harbor Co. or just lose the tail — the fence pays more.</p><p class="small">Take about ' + RL.fmtMoney(pay) + (RL.Roles.hasPerk('fence') ? ' · fence bonus armed' : '') + '.</p><div class="row"><button class="primary" data-act="rob">Stick up the place</button></div>';
       },
-      acts: { rob: () => startHeist(which) }
+      acts: { rob: () => startHeist(which), robbery: () => { if (which === 'mart') rob('mart'); } }
     });
   }
   function startHeist(which) {
@@ -67,10 +146,8 @@ RL.Jobs = (function () {
   function whichXp(which) { return which === 'bank' ? 55 : 30; }
   function startStreet() {
     const role = RL.Roles.current();
-    if (role === 'police') {
-      RL.Roles.infraction('street');
-      RL.UI.toast('You ran a street race in uniform.', '#ff8a2e');
-    } else if (RL.Wanted) RL.Wanted.report('street', {});
+    if (RL.Wanted) RL.Wanted.report('street', {});
+    else if (role === 'police') RL.Roles.infraction('street');
     const p = RL.Hub.player;
     rival = { x: p.x - 40, y: p.y + 36, h: 0, speed: 160, color: '#ff2ef0', name: 'Mira', cp: 0, done: false };
     S().job = { type: 'street', cp: 0, cps: [{ x: 2500, y: 380 }, { x: 1640, y: 1460 }, { x: 620, y: 860 }], until: Date.now() + 70000 };
@@ -177,5 +254,5 @@ RL.Jobs = (function () {
       ctx.fillText('SUSPECT', suspect.x, suspect.y - 16);
     }
   }
-  return { showRobbery, showSmuggle, startHeist, startSmuggle, startStreet, startDispatch, update, tryAction, prompt, draw, get rival() { return rival; }, get suspect() { return suspect; } };
+  return { showRobbery, showSmuggle, startHeist, startSmuggle, startStreet, startDispatch, update, tryAction, prompt, draw, isShop, rob, card, promptLine, payFor, SHOPS, get rival() { return rival; }, get suspect() { return suspect; } };
 })();

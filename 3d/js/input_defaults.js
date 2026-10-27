@@ -25,7 +25,7 @@ export const ACTION_NAMES = {
   drift: 'Drift (race) / Shift (drag)',
   nitro: 'Nitro (race) / Shift (drag)',
   action: 'Interact',
-  steal: 'Steal a stopped car',
+  steal: 'Steal a stopped car / rob a shop',
   pause: 'Pause / Menu',
   photo: 'Photo mode',
   reset: 'Reset if stuck',

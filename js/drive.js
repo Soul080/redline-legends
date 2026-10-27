@@ -311,7 +311,11 @@ RL.Drive = (function () {
         RL.Explode.boom(other.x, other.y, {});
       }
     }
-    if (kind === 'traffic' && RL.Wanted) RL.Wanted.report('traffic', { speed: sp, suspect: false, destroyed: destroyed });
+    if (kind === 'traffic' && RL.Wanted) {
+      RL.Wanted.report('traffic', { speed: sp, suspect: false, destroyed: destroyed });
+      if (destroyed) RL.Wanted.addBounty('wreck');
+      else if (sp >= 90) RL.Wanted.addBounty('ram');
+    }
     try { RL.Audio.play(dmg > 8 ? 'crash' : 'bump', dmg / 20); } catch (e) { }
   }
 
@@ -326,6 +330,7 @@ RL.Drive = (function () {
       else driveUpdate(dt, p);
     }
     updateTraffic(dt);
+    if (RL.Peds) RL.Peds.update(dt);
     if (RL.Parked) RL.Parked.update(dt);
     p._lx = p.x; p._ly = p.y;
     const s = RL.Game.state;
@@ -570,6 +575,7 @@ RL.Drive = (function () {
     pollSiren();
     const p = P(); if (!p) return;
     const night = RL.City && RL.City.dark() > 0.25;
+    if (RL.Peds) RL.Peds.draw(ctx);
     traffic.forEach((c) => { if (!c.wrecked) drawCar(ctx, c, { night: false }); });
     if (RL.Parked) RL.Parked.draw(ctx);
     props.forEach((prop) => { if (prop.alive) drawProp(ctx, prop); });

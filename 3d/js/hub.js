@@ -17,6 +17,7 @@ import { wanted } from './wanted.js';
 import { makePerson, disposePerson } from './foot.js';
 import { roles } from './roles.js';
 import { wrecks } from './wrecks.js';
+import { isShop, promptLine, rob } from './robbery.js';
 
 export const hub = {
   active: false,
@@ -40,6 +41,7 @@ export const hub = {
     if (!this.player) this._spawnPlayer();
     else if (!this.player.stolen) this._restylePlayer();
     if (!this.traffic.length) this._spawnTraffic();
+    if (!this.peds || !this.peds.length) this._spawnPeds();
     if (!this.rivals.length) this._spawnRivals();
     this.cooldown = Math.max(this.cooldown, 4);
   },
@@ -67,6 +69,10 @@ export const hub = {
     this.player = null;
     this.parked = null;
     this.traffic = [];
+    if (this.peds) {
+      for (const ped of this.peds) if (ped.mesh) { gfx.world.remove(ped.mesh); disposePerson(ped.mesh); }
+    }
+    this.peds = [];
     this.rivals = [];
     this.police = null;
   },
@@ -282,6 +288,7 @@ export const hub = {
       career.checkAchievements();
     }
     this._traffic(dt);
+    this._peds(dt);
     if (!this.challenge) {
       wanted.update(dt, p, this.city);
       roles.update(dt);
@@ -366,7 +373,7 @@ export const hub = {
       if (p.mesh) p.mesh.visible = true;
       return;
     }
-    const fee = 260;
+    const fee = career.bill(260);
     const paid = Math.min(career.state.money, fee);
     career.addMoney(-paid);
     const s = this.city.spawn;
@@ -433,11 +440,67 @@ export const hub = {
         if (this.fx) this.fx.sparks((p.x + c.x) / 2, 0.4, (p.z + c.z) / 2, 6);
         const bump = p.speed < 8 ? 0.4 : p.speed < 14 ? 2 : 8;
         wanted.offense('traffic', bump, { quiet: bump < 1 });
-        if (bump >= 1) this.msgs.push({ text: 'Hit traffic', t: 1.2, color: '#ff8a2e' });
+        if (bump >= 1) {
+          this.msgs.push({ text: 'Hit traffic', t: 1.2, color: '#fff' });
+          wanted.addCrime(c.damage >= 100 ? 'wreck' : 'ram');
+        }
         if (c.damage >= 100) this._scrapTraffic(c);
       }
     }
     this.traffic = this.traffic.filter((c) => !c.dead);
+  },
+
+  _spawnPeds() {
+    this.peds = [];
+    const pitch = 86;
+    const edge = 15 / 2 + 1.7;
+    const half = 3;
+    const colors = [0xffffff, 0xd7e4ff, 0xffe08a, 0xffd0e0, 0xc8ffe0];
+    const extent = half * pitch - 12;
+    for (let i = -half; i <= half; i++) {
+      for (const side of [-1, 1]) {
+        const mesh = makePerson(colors[this.peds.length % colors.length], false);
+        gfx.world.add(mesh);
+        this.peds.push({
+          mesh: mesh,
+          x: i * pitch + side * edge,
+          z: -extent + (this.peds.length % 5) * 18,
+          dir: this.peds.length % 2 ? 1 : -1,
+          down: 0
+        });
+      }
+    }
+  },
+
+  _peds(dt) {
+    if (!this.peds || !this.peds.length || !this.player) return;
+    const p = this.player;
+    const extent = 3 * 86 - 8;
+    for (const ped of this.peds) {
+      if (ped.down > 0) {
+        ped.down -= dt;
+        if (ped.mesh) {
+          ped.mesh.position.set(ped.x, 0.35, ped.z);
+          ped.mesh.rotation.z = Math.PI / 2;
+        }
+        continue;
+      }
+      ped.z += ped.dir * 1.4 * dt;
+      if (ped.z > extent || ped.z < -extent) ped.dir *= -1;
+      if (ped.mesh) {
+        ped.mesh.position.set(ped.x, 0, ped.z);
+        ped.mesh.rotation.z = 0;
+        ped.mesh.rotation.y = ped.dir > 0 ? 0 : Math.PI;
+      }
+      if (p.onFoot || p.wreckHold) continue;
+      if (p.speed < 8) continue;
+      if (Math.hypot(p.x - ped.x, p.z - ped.z) > 1.35) continue;
+      ped.down = 6;
+      ped.z += Math.cos(p.h || 0) * 1.2;
+      wanted.addCrime('pedestrian');
+      wanted.offense('traffic', 6);
+      this.msgs.push({ text: 'Hit a pedestrian', t: 1.4, color: '#fff' });
+    }
   },
 
   _scrapTraffic(c) {
@@ -452,15 +515,36 @@ export const hub = {
     }
   },
 
+  _shopHere(p) {
+    const lot = lotAt(this.city, p.x, p.z);
+    if (lot && isShop(lot.id)) return lot;
+    if (!p.onFoot || !this.city || !this.city.pois) return null;
+    let best = null, bd = 9;
+    for (const poi of this.city.pois) {
+      if (!isShop(poi.id)) continue;
+      const d = Math.hypot(poi.x - p.x, poi.z - p.z);
+      if (d < bd) { bd = d; best = poi; }
+    }
+    return best;
+  },
+
   _prompt(input) {
     if (this.challenge) { this.prompt = null; return; }
     const p = this.player;
-    if (p.onFoot && this.mount) {
-      const d = Math.hypot(p.x - this.mount.x, p.z - this.mount.z);
-      if (d < 4.6) {
-        this.prompt = { kind: 'enter', text: 'Get in the car  [Q]' };
-        if (input.hit('action')) this.enterCar();
-      } else this.prompt = { kind: 'foot', text: 'On foot. Get back to the car.' };
+    const shop = this._shopHere(p);
+    const nearMount = p.onFoot && this.mount && Math.hypot(p.x - this.mount.x, p.z - this.mount.z) < 4.6;
+    if (shop && (p.onFoot || p.speed <= 7)) {
+      this.prompt = { kind: 'rob', text: promptLine(shop.id) };
+      if (input.hit('action') && this.onPoi) this.onPoi(shop.id);
+      if (input.hit('steal')) {
+        const res = rob(shop.id);
+        if (res.text) this.msgs.unshift({ text: res.text, t: 2.6, color: '#fff' });
+      }
+      return;
+    }
+    if (nearMount) {
+      this.prompt = { kind: 'enter', text: 'Get in the car  [Q]' };
+      if (input.hit('action') || input.hit('steal')) this.enterCar();
       return;
     }
     const extra = roles.promptExtra();
@@ -544,8 +628,8 @@ export const hub = {
       return;
     }
     if (this.parked && Math.hypot(p.x - this.parked.x, p.z - this.parked.z) < 5.5 && p.speed < 8) {
-      this.prompt = { kind: 'reclaim', text: 'Get back in your car  [E]' };
-      if (input.hit('action')) this._reclaim();
+      this.prompt = { kind: 'reclaim', text: 'Get back in your car  [E/C]' };
+      if (input.hit('action') || input.hit('steal')) this._reclaim();
       return;
     }
     let jack = null;
@@ -557,8 +641,12 @@ export const hub = {
     }
     if (jack) {
       const hp = Math.max(0, Math.round(100 - (jack.damage || 0)));
-      this.prompt = { kind: 'steal', text: 'Steal tier ' + jack.tier + ' ' + jack.def.name + ' · ' + hp + '%  [E]' };
-      if (input.hit('action')) this._steal(jack);
+      this.prompt = { kind: 'steal', text: 'Steal tier ' + jack.tier + ' ' + jack.def.name + ' · ' + hp + '%  [E/C]' };
+      if (input.hit('action') || input.hit('steal')) this._steal(jack);
+      return;
+    }
+    if (p.onFoot && this.mount) {
+      this.prompt = { kind: 'foot', text: 'On foot. Walk up to a shop, or back to the car.' };
       return;
     }
     this.prompt = null;

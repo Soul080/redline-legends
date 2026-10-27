@@ -9,8 +9,10 @@ import { audio } from './audio.js';
 import { input, ACTION_NAMES, DEFAULT_KEYS } from './input.js';
 import { escapeHtml, fmtMoney, fmtTime } from './util.js';
 import { list as listTracks } from './tracks.js';
-import { roles, ROLE_INFO, ROLE_ORDER, rankName, rankIndex, switchWait } from './roles.js';
+import { roles, ROLE_INFO, ROLE_ORDER, rankName, rankIndex, switchWait, formatLock } from './roles.js';
 import { wanted } from './wanted.js';
+import { hideSeconds, formatCooldown } from './heat.js';
+import { isShop, card as robCard, rob as robShop } from './robbery.js';
 
 const $ = (id) => document.getElementById(id);
 export const actions = {};
@@ -59,6 +61,7 @@ export const ui = {
     });
   },
   isOpen() { return stack.length > 0; },
+  refresh() { if (stack.length) render(false); },
   topLocked() {
     const v = stack[stack.length - 1];
     return !!(v && v.noClose);
@@ -79,6 +82,7 @@ export const ui = {
     const t = document.createElement('div');
     t.className = 'toast';
     t.textContent = text;
+    t.style.color = '#fff';
     t.style.borderColor = color || '#2ee6ff';
     $('toasts').appendChild(t);
     setTimeout(() => t.classList.add('out'), 3200);
@@ -255,14 +259,18 @@ function showMenu() {
     } });
 }
 function showHelp() {
-  open({ title: 'How to Play', render: () => '<ul class="help">' +
+  const clock = (n) => formatCooldown(hideSeconds(n));
+  open({ title: 'How to Play', cls: 'help-panel', render: () => '<ul class="help">' +
     '<li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building\'s lot and press <kbd>E</kbd>. The avenue itself is not a door. Downtown has the garage, race office, shop, dealership, and the bar hideout. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway meetup is east.</li>' +
-    '<li><b>Heat:</b> stars are slow. A nudge or a cone barely counts, and heat falls off when you drive clean. Red lights, wrecks, smashed props, and holding a high speed do count. One star is one cruiser, sometimes two. They are slower than a decent car — dodge them, don\'t try to out-muscle the whole city. The bounty under the stars is what a clean escape pays.</li>' +
-    '<li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> to steal it. Tiers have different speed and health. Circuit races and the drag strip always use the car you own.</li>' +
-    '<li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a 60s cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. Each role has its own rank.</li>' +
+    '<li><b>Heat:</b> stars do not stop at five. The board shows up to five star icons, then a count such as ★ x12. A nudge or a cone barely counts. Red lights, wrecks, smashed props, and holding a high speed do count. Stars do not fall while the police can see you. Break line of sight and stay hidden. The HUD shows a white cooldown: ' +
+    clock(1) + ' at one star, ' + clock(5) + ' at five, and ' + clock(8) + ' at eight. Past five, every extra star waits longer. Spotting you resets that clock. When it hits zero, one star drops. Kingpin trims the wait a little. Each new star adds bounty, and a higher star adds more. Running someone over, ramming a car, or wrecking one adds bounty too. Losing the police pays nothing and does not wipe it. The bounty stays until you are busted. In a city server, a cop can bust you and claim it. Cruisers start off screen, on a road, and drive to you. A stuck cruiser reverses. It does not pop in beside you. Past five stars the squad stays small enough to dodge.</li>' +
+    '<li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> or <kbd>C</kbd> to steal it. The STEAL button does the same. Tiers have different speed and health. Circuit races and the drag strip always use the car you own. At a shop door, <kbd>C</kbd> robs the till instead.</li>' +
+    '<li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. If a cop picks up a wanted star, they become Neutral immediately and cannot change roles for 5 minutes. The timer shows on screen and is stored in the save. Each role has its own rank. A criminal is a known face: shops, repairs, fuel, and the hospital cost 12% more, sales pay less, and heat falls slower. Kingpin waives that street tax.</li>' +
+    '<li><b>On sight:</b> with no wanted stars, an officer outside the police station still shoots a criminal in view. The shot flashes, then fires at the spot you were standing. Move more than a step, take the far lane, break the line with a building, or pull into the station lot. The lot is a ceasefire so you can still change roles. The shot spends health. It does not add a star. Driving off refills that health.</li>' +
+    '<li><b>Shops:</b> Walk into the lot of the parts shop, Quick Mart, the dealership, or Nitro Fuel. On foot, walk up to the same lot. <kbd>E</kbd> opens the counter. <kbd>C</kbd> or Rob the register takes the cash. Away from a till, <kbd>C</kbd> still steals a car. Wanted stars go up, and the bounty under them goes up with the heat. The till stays empty for about a minute. <kbd>Q</kbd> gets you back in the car.</li>' +
     '<li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li>' +
     '<li><b>Camera:</b> <kbd>V</kbd>, the Cam button, or the touch CAM button cycles chase, cockpit, a front camera (the road ahead stays in the corner), and top-down. A label such as Camera: Chase [V] shows the one you just picked. Top-down follows you from above and stays above the roofs. Settings chooses north-up or car-up. Left and right steer the car, including on foot and on the touch pad. The front camera looks back at you, so the car can move the other way on the screen. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li>' +
-    '<li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260. Blowing up during a chase counts as a bust.</li>' +
+    '<li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260, or a bit more if you are a known criminal. Blowing up during a chase counts as a bust.</li>' +
     '<li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li>' +
     '<li><b>Drag:</b> hold brake + gas to stage, release brake on green, then shift with Space or Shift. Perfect shifts are a real bonus.</li>' +
     '<li><b>Custom:</b> the Race Office opens a custom grid and the track editor. Export a share code to pass a layout around.</li>' +
@@ -372,10 +380,12 @@ function showInventory() {
 function showHospital() {
   open({ title: 'City Hospital', render: () => {
     const hp = actions.playerHp ? actions.playerHp() : 100;
-    return '<p>A bright clinic off the avenue. $40 puts you back to full. Wasted drivers already wake up here.</p><p class="small">HP ' + Math.round(hp) + '</p><div class="row"><button class="primary" data-act="heal"' + (career.state.money < 40 || hp >= 100 ? ' disabled' : '') + '>Heal ($40)</button></div>';
+    const cost = career.bill(40);
+    return '<p>A bright clinic off the avenue. $' + cost + ' puts you back to full. Wasted drivers already wake up here.</p><p class="small">HP ' + Math.round(hp) + '</p><div class="row"><button class="primary" data-act="heal"' + (career.state.money < cost || hp >= 100 ? ' disabled' : '') + '>Heal ($' + cost + ')</button></div>';
   }, acts: { heal: () => {
-    if (career.state.money < 40 || (actions.playerHp && actions.playerHp() >= 100)) return;
-    career.addMoney(-40);
+    const cost = career.bill(40);
+    if (career.state.money < cost || (actions.playerHp && actions.playerHp() >= 100)) return;
+    career.addMoney(-cost);
     if (actions.healPlayer) actions.healPlayer();
     audio.play('coin');
     ui.toast('All patched up', '#7dff5a');
@@ -386,11 +396,15 @@ function showHospital() {
 function showGas() {
   open({ title: 'Nitro Fuel', render: () => {
     const car = career.currentCar();
-    return '<p>High-test and a hose. Patch 15% damage for $120.</p><p class="small">Damage ' + Math.round(car.damage) + '%</p><div class="row"><button class="primary" data-act="fix"' + (career.state.money < 120 || car.damage < 1 ? ' disabled' : '') + '>Patch</button></div>';
-  }, acts: { fix: () => {
+    const cost = career.bill(120);
+    return robCard('gas') + '<p class="rob-line">High-test and a hose. Patch 15% damage for $' + cost + '.</p><p class="rob-line">Damage ' + Math.round(car.damage) + '%</p><div class="row"><button class="primary" data-act="fix"' + (career.state.money < cost || car.damage < 1 ? ' disabled' : '') + '>Patch</button></div>';
+  }, acts: {
+    robbery: () => finishRob(robShop('gas')),
+    fix: () => {
     const car = career.currentCar();
-    if (career.state.money < 120 || car.damage < 1) return;
-    career.addMoney(-120);
+    const cost = career.bill(120);
+    if (career.state.money < cost || car.damage < 1) return;
+    career.addMoney(-cost);
     car.damage = Math.max(0, car.damage - 15);
     if (actions.syncDamage) actions.syncDamage();
     audio.play('coin');
@@ -401,15 +415,20 @@ function showGas() {
 function showPlace(name, text) {
   open({ title: name || 'Landmark', render: () => '<p>' + escapeHtml(text || '') + '</p>', acts: {} });
 }
-function showShop(tab) {
+function finishRob(res) {
+  if (res && res.text) ui.toast(res.text, '#fff');
+  if (res && res.ok) audio.play('coin');
+}
+function showShop(tab, place) {
+  const placeId = (place && isShop(place)) ? place : null;
   const v = { title: tab === 'cars' ? 'Dealership' : 'Shop', tab: tab || 'parts', render: () => {
-    const s = career.state, pm = career.priceMult();
-    let h = tabs(v, [['cars', 'Cars'], ['parts', 'Parts'], ['sell', 'Sell']]) + '<p class="small">Cash <b class="hl">' + fmtMoney(s.money) + '</b>' + (pm < 0.999 ? ' · ' + Math.round((1 - pm) * 100) + '% off' : '') + '</p>';
+    const s = career.state, pm = career.priceMult(), tax = career.crimeTax();
+    let h = (placeId ? robCard(placeId) : '') + tabs(v, [['cars', 'Cars'], ['parts', 'Parts'], ['sell', 'Sell']]) + '<p class="rob-line">Cash <b class="hl">' + fmtMoney(s.money) + '</b>' + (pm < 0.999 ? ' · ' + Math.round((1 - pm) * 100) + '% off' : '') + (tax > 1 ? ' · street tax 12%' : '') + '</p>';
     if (v.tab === 'cars') {
       h += RL.CARS.map((c) => {
         const owned = s.cars.some((x) => x.id === c.id);
         const locked = c.league > s.league;
-        const price = Math.round(c.price * pm);
+        const price = career.streetPrice(c.price);
         return '<div class="card"><div><i class="swatch" style="background:' + c.color + '"></i> <b>' + c.name + '</b> <span class="small">' + c.cls + ' · L' + c.league + '</span><div class="mini">' +
           RL.STAT_ORDER.map((k) => '<span>' + RL.STAT_NAMES[k].slice(0, 3) + ' ' + c.s[k] + '</span>').join('') + '</div></div><div class="btns">' +
           (owned ? '<span class="eq">OWNED</span>' : locked ? '<span class="dim">League ' + c.league + '</span>' : '<button data-act="buycar" data-arg="' + c.id + '" ' + (s.money < price ? 'disabled' : '') + '>' + fmtMoney(price) + '</button>') + '</div></div>';
@@ -419,7 +438,7 @@ function showShop(tab) {
       h += RL.SLOT_ORDER.map((slot) => '<div class="slot"><h4>' + RL.SLOTS[slot].icon + ' ' + RL.SLOTS[slot].name + '</h4>' + RL.RARITY_ORDER.map((r, i) => {
         if (i > maxR) return '';
         const proto = career.makePart(slot, r, false);
-        const price = Math.round(career.partValue(proto) * pm);
+        const price = career.streetPrice(career.partValue(proto));
         return partCard(proto, '<button data-act="buypart" data-arg="' + slot + ',' + r + '" ' + (s.money < price ? 'disabled' : '') + '>' + fmtMoney(price) + '</button>');
       }).join('') + '</div>').join('');
     } else {
@@ -430,7 +449,7 @@ function showShop(tab) {
   }, acts: {
     tab: (a) => { v.tab = a; },
     buycar: (id) => {
-      const c = career.carDef(id), price = Math.round(c.price * career.priceMult());
+      const c = career.carDef(id), price = career.streetPrice(c.price);
       if (career.state.money < price) return audio.play('error');
       career.addMoney(-price);
       const inst = { uid: career.makePart('paint', 'common', false).uid, id, damage: 0, parts: {}, tune: { gear: 0, aero: 0 }, style: { color: c.color, rims: 1, decal: 'none', underglow: false } };
@@ -444,7 +463,7 @@ function showShop(tab) {
     buypart: (a) => {
       const [slot, r] = a.split(',');
       const p = career.makePart(slot, r, false);
-      const price = Math.round(career.partValue(p) * career.priceMult());
+      const price = career.streetPrice(career.partValue(p));
       if (career.state.money < price) return audio.play('error');
       career.addMoney(-price);
       career.state.inventory.push(p);
@@ -453,7 +472,8 @@ function showShop(tab) {
       career.checkAchievements();
       needSave();
     },
-    sell: (id) => { const p = career.findPart(id); career.state.inventory = career.state.inventory.filter((x) => x.uid !== id); career.addMoney(career.sellPrice(p)); audio.play('coin'); needSave(); }
+    sell: (id) => { const p = career.findPart(id); career.state.inventory = career.state.inventory.filter((x) => x.uid !== id); career.addMoney(career.sellPrice(p)); audio.play('coin'); needSave(); },
+    robbery: () => { if (placeId) finishRob(robShop(placeId)); }
   } };
   open(v);
 }
@@ -548,15 +568,16 @@ function showHQ() {
   const v = { title: 'HQ', render: () => {
     const s = career.state;
     const role = s.role || 'neutral';
-    const wait = Math.ceil(switchWait() / 1000);
+    const wait = switchWait();
+    const locked = wait > 0 || wanted.stars > 0;
     let h = '<p>' + ROLE_INFO[role].blurb + '</p>';
-    h += '<p class="small">Current <b>' + ROLE_INFO[role].name + '</b> · ' + rankName(role) + ' · ' + (wanted.stars ? wanted.stars + ' stars' : 'clean') + '</p>';
-    if (wait > 0) h += '<p class="small dim">Role switch ready in ' + wait + 's</p>';
-    h += '<div class="row">' + ROLE_ORDER.map((id) => '<button data-act="role" data-arg="' + id + '"' + (id === role ? ' disabled' : '') + '>' + ROLE_INFO[id].name + '</button>').join('') + '</div>';
+    h += '<p class="role-lock-copy">Current <b>' + ROLE_INFO[role].name + '</b> · ' + rankName(role) + ' · ' + (wanted.stars ? wanted.stars + ' stars' : 'clean') + '</p>';
+    if (wait > 0) h += '<p class="role-lock-copy">Role change locked <b id="role-lock-inline">' + formatLock(wait) + '</b></p>';
+    h += '<div class="row">' + ROLE_ORDER.map((id) => '<button data-act="role" data-arg="' + id + '"' + (id === role || locked ? ' disabled' : '') + '>' + ROLE_INFO[id].name + (id !== role && locked ? ' · Locked' : '') + '</button>').join('') + '</div>';
     h += ROLE_ORDER.map((id) => {
       const info = ROLE_INFO[id];
       const ri = rankIndex(s.roleXp[id] || 0);
-      return '<h3>' + info.name + '</h3><p class="small">' + info.ranks[ri] + ' — ' + info.perks[ri] + '</p>';
+      return '<h3 style="color:#fff">' + info.name + '</h3><p class="role-lock-copy">' + info.ranks[ri] + ' — ' + info.perks[ri] + '</p>';
     }).join('');
     if (role === 'police') h += '<div class="row"><button class="primary" data-act="pursuit">Start a pursuit</button></div>';
     if (role === 'criminal') h += '<div class="row"><button data-act="jobs">Criminal jobs</button></div>';
@@ -564,7 +585,7 @@ function showHQ() {
   }, acts: {
     role: (id) => {
       const res = roles.switchTo(id);
-      if (!res.ok && res.reason === 'cooldown') ui.toast('Cooldown ' + Math.ceil(res.wait / 1000) + 's');
+      if (!res.ok && res.reason === 'cooldown') ui.toast('Role lock ' + formatLock(res.wait));
       else if (!res.ok && res.reason === 'heat') ui.toast('Lose the heat first');
       else if (res.ok) { ui.toast('Role: ' + ROLE_INFO[id].name); if (actions.restyle) actions.restyle(); }
     },

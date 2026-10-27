@@ -16,6 +16,7 @@ import { rand, pick } from './util.js';
 export const ROLE_ORDER = ['neutral', 'criminal', 'police'];
 const XP_STEPS = [0, 40, 110, 200, 320];
 const COOLDOWN = 60000;
+export const ROLE_LOCK_MS = 5 * 60 * 1000;
 
 export const ROLE_INFO = {
   neutral: {
@@ -27,14 +28,14 @@ export const ROLE_INFO = {
   criminal: {
     name: 'Criminal',
     ranks: ['Associate', 'Runner', 'Thief', 'Smuggler', 'Kingpin'],
-    perks: ['Heat climbs 65% faster', 'Job pay +15%', 'Underglow kit', 'Spike strips hurt half as much', 'Heat −15% and job pay +35%'],
-    blurb: 'Heists and smuggling pay big. Every noisy minute puts stars on the board faster than a civilian would earn them.'
+    perks: ['Heat climbs 65% faster', 'Job pay +15%', 'Underglow kit', 'Spike strips hurt half as much', 'Heat −15%, job pay +35%, street tax waived'],
+    blurb: 'Heists pay big. Police shoot on sight even with no stars. The shot flashes and aims where you were — move, or use the far side of the street. The station lot is a ceasefire. Shops, repairs, fuel, and the hospital cost 12% more, sales pay less, and heat falls slower until Kingpin.'
   },
   police: {
     name: 'Police',
     ranks: ['Cadet', 'Officer', 'Sergeant', 'Lieutenant', 'Chief'],
     perks: ['Bounties as posted', 'Wider bust window', 'Bounty +20%', 'Siren slows a runner', 'Bounty +50%'],
-    blurb: 'The livery is yours. Ram a runner or sit on their nose until they box themselves. Street racers are fair game. You do not take heat.'
+    blurb: 'The livery is yours. Ram a runner or sit on their nose until they box themselves. Street racers are fair game. A wanted star pulls the badge: you become Neutral and cannot change roles for 5 minutes.'
   }
 };
 
@@ -50,9 +51,21 @@ export function rankName(role) {
   return info.ranks[rankIndex(xp)];
 }
 
+export function formatLock(ms) {
+  const total = Math.max(0, Math.ceil((Number(ms) || 0) / 1000));
+  const m = Math.floor(total / 60);
+  const sec = total % 60;
+  return m + ':' + (sec < 10 ? '0' : '') + sec;
+}
+
+/* roleCooldownUntil is the saved end. roleSwitchAt + 60s is the 3D anchor.
+   A 5 minute badge lock sets both so neither city shortens it. */
 export function switchWait() {
   if (!career.state) return 0;
-  return Math.max(0, (career.state.roleSwitchAt || 0) + COOLDOWN - Date.now());
+  const now = Date.now();
+  const until = Number(career.state.roleCooldownUntil) || 0;
+  const fromSwitch = (Number(career.state.roleSwitchAt) || 0) + COOLDOWN;
+  return Math.max(0, until - now, fromSwitch - now);
 }
 
 export const roles = {
@@ -89,8 +102,44 @@ export const roles = {
     career.checkAchievements();
     career.save();
     if (this.onChange) this.onChange();
-    this.note('Now ' + ROLE_INFO[id].name, '#2ee6ff');
+    this.note('Now ' + ROLE_INFO[id].name, '#fff');
+    this.paintLock();
     return { ok: true };
+  },
+
+  /* Cop + a wanted star. Neutral immediately, and the save keeps the 5 minute lock. */
+  revokeForWanted() {
+    const s = career.state;
+    if (!s || s.role !== 'police') return false;
+    s.role = 'neutral';
+    s.iaStrikes = 0;
+    const end = Math.max(Number(s.roleCooldownUntil) || 0, Date.now() + ROLE_LOCK_MS);
+    s.roleCooldownUntil = end;
+    s.roleSwitchAt = end - 60000;
+    this._applyLook();
+    this.clearDuty();
+    if (this.hub && this.hub.refreshCar) this.hub.refreshCar();
+    career.save();
+    if (this.hub && this.hub.msgs) {
+      this.hub.msgs.unshift({ text: 'Badge pulled. You are Neutral. Role lock 5:00.', t: 3.4, color: '#fff' });
+    }
+    this.paintLock();
+    if (this.onChange) this.onChange();
+    return true;
+  },
+
+  paintLock() {
+    if (typeof document === 'undefined') return;
+    const el = document.getElementById('role-lock');
+    const inline = document.getElementById('role-lock-inline');
+    const left = switchWait();
+    const hub = document.body.classList.contains('mode-hub');
+    if (el) {
+      const show = hub && left > 0;
+      el.hidden = !show;
+      if (show) el.textContent = 'ROLE LOCK ' + formatLock(left);
+    }
+    if (inline) inline.textContent = formatLock(left);
   },
 
   _applyLook() {
@@ -373,3 +422,5 @@ export const roles = {
     return null;
   }
 };
+
+wanted.onPoliceWanted = function () { roles.revokeForWanted(); };

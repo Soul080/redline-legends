@@ -240,7 +240,7 @@
         if (look.decal === 'number') svg += '<text x="110" y="62" fill="' + look.decalColor + '" font-size="16" text-anchor="middle">01</text>';
         if (RL.Roles && RL.Roles.current() === 'police') svg += '<rect x="40" y="42" width="140" height="6" fill="#1d4e9a"/><text x="110" y="64" fill="#fff" font-size="10" text-anchor="middle">POLICE</text>';
         svg += '</svg>';
-        let h = svg + '<div class="row">';
+        let h = (RL.Jobs ? RL.Jobs.card('customs') : '') + svg + '<div class="row">';
         RL.PAINT_COLORS.forEach((c) => { h += '<button data-act="paint" data-arg="' + c + '" style="background:' + c + ';width:28px;height:28px"></button>'; });
         h += '<button data-act="paint" data-arg="">Stock</button></div><div class="row">';
         DECALS.forEach((d) => { h += '<button data-act="decal" data-arg="' + d + '"' + (look.decal === d ? ' class="primary"' : '') + '>' + d + '</button>'; });
@@ -250,7 +250,8 @@
       },
       acts: {
         paint: (c) => { car.look.paint = c || null; touchCustom(); },
-        decal: (d) => { car.look.decal = d; touchCustom(); }
+        decal: (d) => { car.look.decal = d; touchCustom(); },
+        robbery: () => { if (RL.Jobs) RL.Jobs.rob('customs'); }
       }
     });
   }

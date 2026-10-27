@@ -19,6 +19,7 @@ import { ui, actions } from './ui.js';
 import { clockString, fmtTime } from './util.js';
 import * as THREE from 'three';
 import { wanted } from './wanted.js';
+import { starLabel } from './heat.js';
 import { roles, rankName } from './roles.js';
 import { editor } from './editor.js';
 import { get as getTrack } from './tracks.js';
@@ -26,6 +27,9 @@ import { wrecks } from './wrecks.js';
 
 const $ = (id) => document.getElementById(id);
 const STEP = 1 / 60;
+function escapeHud(s) {
+  return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
 
 export const game = {
   mode: 'title',
@@ -158,6 +162,10 @@ export const game = {
     };
     actions.weather = (w) => { if (w !== 'auto') this.weather = w; };
     actions.restyle = () => { if (hub.player && (this.mode === 'hub' || this.mode === 'street')) hub.refreshCar(); };
+    roles.onChange = () => {
+      if (ui.refresh) ui.refresh();
+      if (hub.player && (this.mode === 'hub' || this.mode === 'street')) hub.refreshCar();
+    };
     actions.preview = () => {};
     actions.paint = (color) => {
       if (!career.state) return;
@@ -320,8 +328,8 @@ export const game = {
   _poi(id) {
     audio.play('confirm');
     const map = {
-      garage: ui.showGarage, office: ui.showOffice, shop: () => ui.showShop('parts'),
-      dealer: () => ui.showShop('cars'), mart: () => ui.showShop('parts'),
+      garage: ui.showGarage, office: ui.showOffice, shop: () => ui.showShop('parts', 'shop'),
+      dealer: () => ui.showShop('cars', 'dealer'), mart: () => ui.showShop('parts', 'mart'),
       bar: ui.showBar, training: ui.showTraining, police: ui.showHQ, hq: ui.showHQ,
       jobs: ui.showJobs, hospital: ui.showHospital, gas: ui.showGas,
       drag: () => this.startDrag(), vista: () => this.togglePhoto(),
@@ -535,6 +543,7 @@ export const game = {
         cd.textContent = n > 0 && n <= 3 ? String(n) : '';
       } else cd.hidden = true;
     }
+    if (roles.paintLock) roles.paintLock();
     this._raceHud();
     this._dragHud();
     this._minimap();
@@ -546,11 +555,13 @@ export const game = {
       const show = (this.mode === 'hub' || this.mode === 'street') && (stars > 0 || bounty > 0 || role === 'police' || role === 'criminal');
       wantedEl.hidden = !show;
       if (show) {
-        const starsTxt = role === 'police' && stars <= 0 ? 'POLICE' : ('★'.repeat(stars) + '☆'.repeat(Math.max(0, 5 - stars)));
+        const starsTxt = role === 'police' && stars <= 0 ? 'POLICE' : starLabel(stars);
         const rank = role ? rankName(role) : '';
         const purse = bounty > 0 ? '   BOUNTY $' + bounty.toLocaleString('en-US') : '';
-        wantedEl.textContent = starsTxt + purse + (rank ? '  ' + rank : '');
-        wantedEl.className = 'stars-' + stars + (role ? ' role-' + role : '');
+        const cd = stars > 0 ? wanted.cooldownLabel() : '';
+        const main = starsTxt + (rank ? '  ' + rank : '');
+        wantedEl.innerHTML = escapeHud(main) + (bounty > 0 ? '<span class="bounty">' + escapeHud(purse) + '</span>' : '') + (cd ? '<span class="cool">' + escapeHud(cd) + '</span>' : '');
+        wantedEl.className = 'stars-' + (stars > 5 ? 'high' : stars) + (role ? ' role-' + role : '');
       }
     }
     if ((this.mode === 'hub' || this.mode === 'street') && hub.player && $('hud-car')) {
