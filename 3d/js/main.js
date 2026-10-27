@@ -154,6 +154,8 @@ window.__RL3 = {
   camera() { return gfx.view; },
   pip() { return !!gfx.pip; },
   cycleCam() { return game._cycleCam(); },
+  setCamera(id) { return game.setCamera(id); },
+  setTopNorth(on) { return game.setTopNorth(on); },
   copCount() { return wanted.cops.length; },
   copSpeeds() { return wanted.cops.map((c) => c.p.maxSpeed); },
   pardon() { wanted.pardon(); },

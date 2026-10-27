@@ -328,7 +328,7 @@ export function updateCarVisual(group, dt, state) {
   const radius = ud.spec.bar ? 0.38 : 0.33;
   ud.spin = (ud.spin || 0) + (speed / radius) * dt * (state.reverse ? -1 : 1);
   for (const m of ud.spins) m.rotation.x = ud.spin;
-  const steerAngle = -(state.steer || 0) * 0.38;
+  const steerAngle = (state.steer || 0) * 0.38;
   for (const p of ud.steers) p.rotation.y = steerAngle;
   const night = state.night || 0;
   ud.headMat.emissiveIntensity = 0.25 + night * 3.2 + (state.nitro ? 0.4 : 0);

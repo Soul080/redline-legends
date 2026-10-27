@@ -7,7 +7,7 @@ import { RL } from './data.js';
 import { career } from './state.js';
 import { settings } from './settings.js';
 import { buildTrack, buildCustomTrack, buildTrackMesh, updateTrackPos, sampleAtDist, applyRoadWeather, disposeGroup } from './track.js';
-import { blankVehicle, stepVehicle, physFromStats, driverMods, AI_MODS } from './drive.js';
+import { blankVehicle, stepVehicle, physFromStats, driverMods, AI_MODS, playerSteer } from './drive.js';
 import { aiInput } from './ai.js';
 import { buildCar, updateCarVisual, carClass, disposeCar } from './cars.js';
 import { gfx } from './renderer.js';
@@ -221,7 +221,7 @@ export const race = {
     let inp = {
       throttle: input.down('up'),
       brake: input.down('down'),
-      steer: ((input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0)) * (settings.data.sensitivity || 1),
+      steer: playerSteer(input),
       drift: input.down('drift'),
       nitro: this.cfg.nitro === false ? false : input.down('nitro')
     };

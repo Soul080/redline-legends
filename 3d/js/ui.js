@@ -261,7 +261,7 @@ function showHelp() {
     '<li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> to steal it. Tiers have different speed and health. Circuit races and the drag strip always use the car you own.</li>' +
     '<li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a 60s cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. Each role has its own rank.</li>' +
     '<li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li>' +
-    '<li><b>Camera:</b> <kbd>V</kbd> cycles cockpit, a front camera (the road ahead stays in the corner), and the chase view. The same button works on foot. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li>' +
+    '<li><b>Camera:</b> <kbd>V</kbd>, the Cam button, or the touch CAM button cycles chase, cockpit, a front camera (the road ahead stays in the corner), and top-down. A label such as Camera: Chase [V] shows the one you just picked. Top-down follows you from above and stays above the roofs. Settings chooses north-up or car-up. Left and right steer the car, including on foot and on the touch pad. The front camera looks back at you, so the car can move the other way on the screen. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li>' +
     '<li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260. Blowing up during a chase counts as a bust.</li>' +
     '<li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li>' +
     '<li><b>Drag:</b> hold brake + gas to stage, release brake on green, then shift with Space or Shift. Perfect shifts are a real bonus.</li>' +
@@ -735,6 +735,11 @@ function showSettings() {
     h += '<div class="setting"><span>City weather</span><button data-act="wx">' + st.weatherLock.toUpperCase() + '</button></div>';
     h += '<h3>City view</h3><div class="setting"><span>Graphics</span><button data-act="viewmode">Switch to 2D</button></div>';
     h += '<p class="small dim">F3 switches between this 3D city and the 2D city. Money, cars, parts, story, roles, and heat stay on one save. V cycles the camera.</p>';
+    h += '<h3>Camera</h3><div class="setting"><span>View</span>' +
+      [['third', 'Chase'], ['first', 'Cockpit'], ['second', 'Front'], ['top', 'Top']].map(([id, name]) =>
+        '<button data-act="cam" data-arg="' + id + '"' + (st.camera === id ? ' class="on"' : '') + '>' + name + '</button>').join('') + '</div>';
+    h += '<div class="setting"><span>Top-down</span><button data-act="topnorth">' + (st.topNorth === false ? 'CAR-UP' : 'NORTH-UP') + '</button></div>';
+    h += '<p class="small dim">V or CAM cycles these. Left turns the car left in every view, including the front camera that looks back at you. Top-down is north-up or car-up, and it stays above the roofs.</p>';
     h += '<h3>Controls</h3><div class="setting"><span>Touch</span><button data-act="touch">' + st.touch.toUpperCase() + '</button></div>';
     h += '<div class="setting"><span>Steer</span><button data-act="sens" data-arg="-1">−</button><b>' + st.sensitivity.toFixed(1) + '</b><button data-act="sens" data-arg="1">+</button></div>';
     h += '<div class="setting"><span>Shake</span><button data-act="shake">' + (st.shake ? 'ON' : 'OFF') + '</button></div>';
@@ -743,6 +748,8 @@ function showSettings() {
     return h;
   }, acts: {
     viewmode: () => { window.__RL3_requestView && window.__RL3_requestView(); },
+    cam: (id) => { if (actions.setCamera) actions.setCamera(id); },
+    topnorth: () => { if (actions.setTopNorth) actions.setTopNorth(st.topNorth === false); },
     q: (q) => { st.quality = q; settings.save(); actions.quality && actions.quality(q); },
     blur: () => { st.motionBlur = !st.motionBlur; settings.save(); actions.quality && actions.quality(st.quality); },
     wx: () => { const o = ['auto', 'clear', 'rain', 'snow', 'dust']; st.weatherLock = o[(o.indexOf(st.weatherLock) + 1) % o.length]; settings.save(); actions.weather && actions.weather(st.weatherLock); },

@@ -1176,7 +1176,9 @@
     sensitivity: 1,
     quality: "med",
     motionBlur: true,
-    weatherLock: "auto"
+    weatherLock: "auto",
+    camera: "third",
+    topNorth: true
   };
   var settings = {
     data: null,
@@ -1190,6 +1192,8 @@
       const keys2 = Object.assign({}, DEFAULT_KEYS, saved.keys || {});
       this.data = Object.assign({}, BASE, saved, { keys: keys2 });
       if (!QUALITY[this.data.quality]) this.data.quality = "med";
+      if (["third", "first", "second", "top"].indexOf(this.data.camera) < 0) this.data.camera = "third";
+      if (typeof this.data.topNorth !== "boolean") this.data.topNorth = true;
       return this.data;
     },
     save() {
@@ -26271,7 +26275,7 @@ void main() {
       this.pip = true;
     },
     cycle() {
-      const order = ["third", "first", "second"];
+      const order = ["third", "first", "second", "top"];
       const i = order.indexOf(this.view);
       this.view = order[(i + 1) % order.length];
       this.pip = this.view === "second";
@@ -26281,12 +26285,61 @@ void main() {
     frame(car, dt, extraBack, clipQuery) {
       if (!car) return;
       this._clipQuery = clipQuery || null;
+      this.camera.up.set(0, 1, 0);
       const onFoot = !!car.onFoot;
       if (car.mesh) car.mesh.visible = !(this.view === "first" && onFoot);
       if (this.view === "first") this.firstPerson(car, dt);
       else if (this.view === "second") this.secondPerson(car, dt);
+      else if (this.view === "top") this.topDown(car, dt);
       else this.chase(car, dt, extraBack);
       this.pip = this.view === "second";
+    },
+    /** Tallest solid roof covering this point, or 0 when the air is clear. */
+    _roof(x, z) {
+      if (!this._clipQuery) return 0;
+      let roof = 0;
+      const boxes = this._clipQuery(x, z, 1.6);
+      for (const b of boxes) {
+        if (!b || b.prop || b.dead) continue;
+        if (x < b.minX - 0.5 || x > b.maxX + 0.5 || z < b.minZ - 0.5 || z > b.maxZ + 0.5) continue;
+        const top = b.top == null ? 48 : b.top;
+        if (top > roof) roof = top;
+      }
+      return roof;
+    },
+    /**
+     * Overhead follow cam. North-up keeps +Z at the top of the screen.
+     * Car-up turns with the car so its nose points up. The camera sits above
+     * any roof it would otherwise enter.
+     */
+    topDown(car, dt) {
+      const h = car.h || 0;
+      const gy = car.y || 0;
+      const north = !(settings.data && settings.data.topNorth === false);
+      const fx = Math.sin(h), fz = Math.cos(h);
+      const back = north ? 0 : 2.2;
+      const tx = car.x - fx * back;
+      const tz = car.z - fz * back;
+      let roof = this._roof(tx, tz);
+      roof = Math.max(roof, this._roof(car.x, car.z));
+      const ty = gy + Math.max(26, roof + 10);
+      const cam = this.camera;
+      const k = 1 - Math.exp(-7 * Math.max(1e-3, dt));
+      cam.position.x += (tx - cam.position.x) * k;
+      cam.position.z += (tz - cam.position.z) * k;
+      if (cam.position.y < ty - 0.3) cam.position.y = ty;
+      else cam.position.y += (ty - cam.position.y) * k;
+      cam.up.set(north ? 0 : fx, 0, north ? 1 : fz);
+      cam.lookAt(car.x, gy + 0.4, car.z);
+      if (Math.abs(cam.fov - 48) > 0.05) {
+        cam.fov = damp(cam.fov, 48, 6, dt);
+        cam.updateProjectionMatrix();
+      }
+      if (Math.abs(cam.near - 0.4) > 0.01) {
+        cam.near = 0.4;
+        cam.updateProjectionMatrix();
+      }
+      this.setBlur(0);
     },
     /** Pull a camera back along the view ray so it stays outside building volumes. */
     _clearCam(ax, ay, az, bx, by, bz, minDist) {
@@ -26400,6 +26453,10 @@ void main() {
       ty = Math.max(cleared.y, gy + 1.35);
       tz = cleared.z;
       const k = 1 - Math.exp(-4.2 * dt);
+      if (cam.near > 0.2) {
+        cam.near = 0.12;
+        cam.updateProjectionMatrix();
+      }
       cam.position.x += (tx - cam.position.x) * k;
       cam.position.y += (ty - cam.position.y) * k;
       cam.position.z += (tz - cam.position.z) * k;
@@ -28607,6 +28664,12 @@ void main() {
   }
 
   // js/drive.js
+  function playerSteer(input2) {
+    const sens = settings.data && settings.data.sensitivity || 1;
+    const left = input2 && input2.down && input2.down("left") ? 1 : 0;
+    const right = input2 && input2.down && input2.down("right") ? 1 : 0;
+    return (left - right) * sens;
+  }
   function physFromStats(st) {
     return {
       maxSpeed: 22 + st.topSpeed * 0.52,
@@ -29139,7 +29202,7 @@ void main() {
     const radius = ud.spec.bar ? 0.38 : 0.33;
     ud.spin = (ud.spin || 0) + speed / radius * dt * (state.reverse ? -1 : 1);
     for (const m of ud.spins) m.rotation.x = ud.spin;
-    const steerAngle = -(state.steer || 0) * 0.38;
+    const steerAngle = (state.steer || 0) * 0.38;
     for (const p of ud.steers) p.rotation.y = steerAngle;
     const night = state.night || 0;
     ud.headMat.emissiveIntensity = 0.25 + night * 3.2 + (state.nitro ? 0.4 : 0);
@@ -30886,7 +30949,7 @@ void main() {
       const inp = {
         throttle: input2.down("up"),
         brake: input2.down("down"),
-        steer: ((input2.down("right") ? 1 : 0) - (input2.down("left") ? 1 : 0)) * (settings.data.sensitivity || 1),
+        steer: playerSteer(input2),
         drift: input2.down("drift"),
         nitro: input2.down("nitro")
       };
@@ -31800,7 +31863,7 @@ void main() {
       let inp = {
         throttle: input2.down("up"),
         brake: input2.down("down"),
-        steer: ((input2.down("right") ? 1 : 0) - (input2.down("left") ? 1 : 0)) * (settings.data.sensitivity || 1),
+        steer: playerSteer(input2),
         drift: input2.down("drift"),
         nitro: this.cfg.nitro === false ? false : input2.down("nitro")
       };
@@ -32350,7 +32413,7 @@ void main() {
         p.speed = 0;
         if (p.wreckHold <= 0) this._dropPlayer(p);
       } else {
-        this._step(p, dt, { gas, brake, steer: (input2.down("right") ? 1 : 0) - (input2.down("left") ? 1 : 0), green, human: true });
+        this._step(p, dt, { gas, brake, steer: playerSteer(input2), green, human: true });
         if (p.damage >= 100 && !(p.invuln > 0)) this._detonatePlayer(p);
       }
       if (this.ai && this.ai.exploded) {
@@ -33066,7 +33129,7 @@ void main() {
     });
   }
   function showHelp() {
-    open({ title: "How to Play", render: () => `<ul class="help"><li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building's lot and press <kbd>E</kbd>. The avenue itself is not a door. Downtown has the garage, race office, shop, dealership, and the bar hideout. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway meetup is east.</li><li><b>Heat:</b> stars are slow. A nudge or a cone barely counts, and heat falls off when you drive clean. Red lights, wrecks, smashed props, and holding a high speed do count. One star is one cruiser, sometimes two. They are slower than a decent car \u2014 dodge them, don't try to out-muscle the whole city. The bounty under the stars is what a clean escape pays.</li><li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> to steal it. Tiers have different speed and health. Circuit races and the drag strip always use the car you own.</li><li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a 60s cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. Each role has its own rank.</li><li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li><li><b>Camera:</b> <kbd>V</kbd> cycles cockpit, a front camera (the road ahead stays in the corner), and the chase view. The same button works on foot. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li><li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260. Blowing up during a chase counts as a bust.</li><li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li><li><b>Drag:</b> hold brake + gas to stage, release brake on green, then shift with Space or Shift. Perfect shifts are a real bonus.</li><li><b>Custom:</b> the Race Office opens a custom grid and the track editor. Export a share code to pass a layout around.</li><li><b>Streets:</b> parked rivals with a gold glow will race you point to point. Police players can intercept them instead.</li><li>Top 3 in all three league races unlocks the boss. Beat the boss to get promoted.</li><li><kbd>F</kbd> photo mode. <kbd>R</kbd> resets you to the road if you get stuck. <kbd>Esc</kbd> pauses.</li></ul>` });
+    open({ title: "How to Play", render: () => `<ul class="help"><li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building's lot and press <kbd>E</kbd>. The avenue itself is not a door. Downtown has the garage, race office, shop, dealership, and the bar hideout. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway meetup is east.</li><li><b>Heat:</b> stars are slow. A nudge or a cone barely counts, and heat falls off when you drive clean. Red lights, wrecks, smashed props, and holding a high speed do count. One star is one cruiser, sometimes two. They are slower than a decent car \u2014 dodge them, don't try to out-muscle the whole city. The bounty under the stars is what a clean escape pays.</li><li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> to steal it. Tiers have different speed and health. Circuit races and the drag strip always use the car you own.</li><li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a 60s cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. Each role has its own rank.</li><li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li><li><b>Camera:</b> <kbd>V</kbd>, the Cam button, or the touch CAM button cycles chase, cockpit, a front camera (the road ahead stays in the corner), and top-down. A label such as Camera: Chase [V] shows the one you just picked. Top-down follows you from above and stays above the roofs. Settings chooses north-up or car-up. Left and right steer the car, including on foot and on the touch pad. The front camera looks back at you, so the car can move the other way on the screen. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li><li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260. Blowing up during a chase counts as a bust.</li><li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li><li><b>Drag:</b> hold brake + gas to stage, release brake on green, then shift with Space or Shift. Perfect shifts are a real bonus.</li><li><b>Custom:</b> the Race Office opens a custom grid and the track editor. Export a share code to pass a layout around.</li><li><b>Streets:</b> parked rivals with a gold glow will race you point to point. Police players can intercept them instead.</li><li>Top 3 in all three league races unlocks the boss. Beat the boss to get promoted.</li><li><kbd>F</kbd> photo mode. <kbd>R</kbd> resets you to the road if you get stuck. <kbd>Esc</kbd> pauses.</li></ul>` });
   }
   function showGarage(tab) {
     const v = {
@@ -33639,6 +33702,9 @@ void main() {
       h += '<div class="setting"><span>City weather</span><button data-act="wx">' + st.weatherLock.toUpperCase() + "</button></div>";
       h += '<h3>City view</h3><div class="setting"><span>Graphics</span><button data-act="viewmode">Switch to 2D</button></div>';
       h += '<p class="small dim">F3 switches between this 3D city and the 2D city. Money, cars, parts, story, roles, and heat stay on one save. V cycles the camera.</p>';
+      h += '<h3>Camera</h3><div class="setting"><span>View</span>' + [["third", "Chase"], ["first", "Cockpit"], ["second", "Front"], ["top", "Top"]].map(([id, name]) => '<button data-act="cam" data-arg="' + id + '"' + (st.camera === id ? ' class="on"' : "") + ">" + name + "</button>").join("") + "</div>";
+      h += '<div class="setting"><span>Top-down</span><button data-act="topnorth">' + (st.topNorth === false ? "CAR-UP" : "NORTH-UP") + "</button></div>";
+      h += '<p class="small dim">V or CAM cycles these. Left turns the car left in every view, including the front camera that looks back at you. Top-down is north-up or car-up, and it stays above the roofs.</p>';
       h += '<h3>Controls</h3><div class="setting"><span>Touch</span><button data-act="touch">' + st.touch.toUpperCase() + "</button></div>";
       h += '<div class="setting"><span>Steer</span><button data-act="sens" data-arg="-1">\u2212</button><b>' + st.sensitivity.toFixed(1) + '</b><button data-act="sens" data-arg="1">+</button></div>';
       h += '<div class="setting"><span>Shake</span><button data-act="shake">' + (st.shake ? "ON" : "OFF") + "</button></div>";
@@ -33648,6 +33714,12 @@ void main() {
     }, acts: {
       viewmode: () => {
         window.__RL3_requestView && window.__RL3_requestView();
+      },
+      cam: (id) => {
+        if (actions.setCamera) actions.setCamera(id);
+      },
+      topnorth: () => {
+        if (actions.setTopNorth) actions.setTopNorth(st.topNorth === false);
       },
       q: (q) => {
         st.quality = q;
@@ -34085,6 +34157,11 @@ void main() {
       this.city = buildCity();
       gfx.world.add(this.city.group);
       this.city.setBuildingShadows(settings.quality().buildingShadows);
+      const savedCam = settings.data && settings.data.camera;
+      if (savedCam === "first" || savedCam === "second" || savedCam === "third" || savedCam === "top") {
+        gfx.view = savedCam;
+        gfx.pip = savedCam === "second";
+      }
       this._bindActions();
       hub.onPoi = (id) => this._poi(id);
       hub.onMark = (mark) => ui.showPlace(mark.name, mark.blurb || mark.text || "");
@@ -34174,6 +34251,8 @@ void main() {
         return true;
       };
       actions.cycleCam = () => this._cycleCam();
+      actions.setCamera = (id) => this.setCamera(id);
+      actions.setTopNorth = (on) => this.setTopNorth(on);
       actions.toTitle = () => {
         this._leavePlay();
         this.mode = "title";
@@ -34322,6 +34401,7 @@ void main() {
       audio.startMusic("hub");
       audio.stopEngine();
       career.save();
+      this._showCam(gfx.view);
     },
     _leavePlay() {
       race.stop();
@@ -34437,13 +34517,39 @@ void main() {
         document.body.classList.toggle("hide-hud", photo.hideHud);
       }
     },
+    setCamera(id) {
+      const order = ["third", "first", "second", "top"];
+      if (order.indexOf(id) < 0) return gfx.view;
+      gfx.view = id;
+      gfx.pip = id === "second";
+      if (gfx._pipQuad && id !== "second") gfx._pipQuad.visible = false;
+      if (settings.data) settings.data.camera = id;
+      settings.save();
+      this._showCam(id);
+      return id;
+    },
+    setTopNorth(on) {
+      if (settings.data) settings.data.topNorth = !!on;
+      settings.save();
+      if (gfx.view === "top") this._showCam("top");
+      return !!(settings.data && settings.data.topNorth);
+    },
     _cycleCam() {
       const name = gfx.cycle();
+      if (settings.data) settings.data.camera = name;
+      settings.save();
+      this._showCam(name);
+      return name;
+    },
+    _showCam(name) {
+      const labels = { third: "Chase", first: "Cockpit", second: "Front", top: "Top" };
       const el = document.getElementById("cam-name");
       if (el) {
         el.hidden = false;
-        el.textContent = name === "first" ? "COCKPIT" : name === "second" ? "FRONT" : "CHASE";
+        el.classList.add("on");
+        el.textContent = "Camera: " + (labels[name] || "Chase") + " [V]";
       }
+      this._camLabel = 2.6;
       return name;
     },
     update(dt) {
@@ -34520,6 +34626,16 @@ void main() {
       if (career.state) career.state.worldTime = (career.state.worldTime + dt * 4e-3) % 1;
     },
     present(dt) {
+      if (this._camLabel > 0) {
+        this._camLabel -= dt;
+        if (this._camLabel <= 0) {
+          const el = document.getElementById("cam-name");
+          if (el) {
+            el.hidden = true;
+            el.classList.remove("on");
+          }
+        }
+      }
       const time = career.state ? career.state.worldTime : this._titleTime == null ? 0.72 : this._titleTime;
       let theme = "city";
       let atmoTime = time;
@@ -34536,6 +34652,7 @@ void main() {
       this.city.update(dt, gfx.night);
       if (photo.active) photo.apply();
       else if (this.mode === "title") {
+        gfx.camera.up.set(0, 1, 0);
         const t = performance.now() / 1e3;
         const r = 120 + Math.sin(t * 0.15) * 18;
         gfx.camera.position.set(Math.cos(t * 0.08) * r, 34 + Math.sin(t * 0.2) * 6, Math.sin(t * 0.08) * r);
@@ -34959,6 +35076,12 @@ void main() {
     },
     cycleCam() {
       return game._cycleCam();
+    },
+    setCamera(id) {
+      return game.setCamera(id);
+    },
+    setTopNorth(on) {
+      return game.setTopNorth(on);
     },
     copCount() {
       return wanted.cops.length;

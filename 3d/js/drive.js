@@ -4,6 +4,20 @@
    same integrator can drive every mode. */
 
 import { clamp, angNorm, forwardXZ, rightXZ } from './util.js';
+import { settings } from './settings.js';
+
+/**
+ * Player steer, shared by the city, races, the drag strip, and walking.
+ * Heading 0 faces +Z. Increasing it yaws toward +X, and +X is the car's left
+ * when it faces +Z. The left key is the positive side, in every camera,
+ * because the front camera looks back at the car and must not flip the wheel.
+ */
+export function playerSteer(input) {
+  const sens = (settings.data && settings.data.sensitivity) || 1;
+  const left = input && input.down && input.down('left') ? 1 : 0;
+  const right = input && input.down && input.down('right') ? 1 : 0;
+  return (left - right) * sens;
+}
 
 /** Map a 0–100 car sheet into meters/second and radians/second. */
 export function physFromStats(st) {

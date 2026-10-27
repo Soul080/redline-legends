@@ -6,7 +6,7 @@
 import { RL } from './data.js';
 import { career } from './state.js';
 import { settings } from './settings.js';
-import { blankVehicle, stepVehicle, physFromStats, driverMods } from './drive.js';
+import { blankVehicle, stepVehicle, physFromStats, driverMods, playerSteer } from './drive.js';
 import { seekInput } from './ai.js';
 import { buildCar, updateCarVisual, carClass, disposeCar } from './cars.js';
 import { resolveCity, lotAt, lightIsRed, nearestLandmark } from './city.js';
@@ -226,7 +226,7 @@ export const hub = {
     const inp = {
       throttle: input.down('up'),
       brake: input.down('down'),
-      steer: ((input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0)) * (settings.data.sensitivity || 1),
+      steer: playerSteer(input),
       drift: input.down('drift'),
       nitro: input.down('nitro')
     };

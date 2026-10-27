@@ -481,7 +481,7 @@ export const gfx = {
   },
 
   cycle() {
-    const order = ['third', 'first', 'second'];
+    const order = ['third', 'first', 'second', 'top'];
     const i = order.indexOf(this.view);
     this.view = order[(i + 1) % order.length];
     this.pip = this.view === 'second';
@@ -492,12 +492,63 @@ export const gfx = {
   frame(car, dt, extraBack, clipQuery) {
     if (!car) return;
     this._clipQuery = clipQuery || null;
+    this.camera.up.set(0, 1, 0);
     const onFoot = !!car.onFoot;
     if (car.mesh) car.mesh.visible = !(this.view === 'first' && onFoot);
     if (this.view === 'first') this.firstPerson(car, dt);
     else if (this.view === 'second') this.secondPerson(car, dt);
+    else if (this.view === 'top') this.topDown(car, dt);
     else this.chase(car, dt, extraBack);
     this.pip = this.view === 'second';
+  },
+
+  /** Tallest solid roof covering this point, or 0 when the air is clear. */
+  _roof(x, z) {
+    if (!this._clipQuery) return 0;
+    let roof = 0;
+    const boxes = this._clipQuery(x, z, 1.6);
+    for (const b of boxes) {
+      if (!b || b.prop || b.dead) continue;
+      if (x < b.minX - 0.5 || x > b.maxX + 0.5 || z < b.minZ - 0.5 || z > b.maxZ + 0.5) continue;
+      const top = b.top == null ? 48 : b.top;
+      if (top > roof) roof = top;
+    }
+    return roof;
+  },
+
+  /**
+   * Overhead follow cam. North-up keeps +Z at the top of the screen.
+   * Car-up turns with the car so its nose points up. The camera sits above
+   * any roof it would otherwise enter.
+   */
+  topDown(car, dt) {
+    const h = car.h || 0;
+    const gy = car.y || 0;
+    const north = !(settings.data && settings.data.topNorth === false);
+    const fx = Math.sin(h), fz = Math.cos(h);
+    const back = north ? 0 : 2.2;
+    const tx = car.x - fx * back;
+    const tz = car.z - fz * back;
+    let roof = this._roof(tx, tz);
+    roof = Math.max(roof, this._roof(car.x, car.z));
+    const ty = gy + Math.max(26, roof + 10);
+    const cam = this.camera;
+    const k = 1 - Math.exp(-7 * Math.max(0.001, dt));
+    cam.position.x += (tx - cam.position.x) * k;
+    cam.position.z += (tz - cam.position.z) * k;
+    if (cam.position.y < ty - 0.3) cam.position.y = ty;
+    else cam.position.y += (ty - cam.position.y) * k;
+    cam.up.set(north ? 0 : fx, 0, north ? 1 : fz);
+    cam.lookAt(car.x, gy + 0.4, car.z);
+    if (Math.abs(cam.fov - 48) > 0.05) {
+      cam.fov = damp(cam.fov, 48, 6, dt);
+      cam.updateProjectionMatrix();
+    }
+    if (Math.abs(cam.near - 0.4) > 0.01) {
+      cam.near = 0.4;
+      cam.updateProjectionMatrix();
+    }
+    this.setBlur(0);
   },
 
   /** Pull a camera back along the view ray so it stays outside building volumes. */
@@ -610,6 +661,10 @@ export const gfx = {
     const cleared = this._clearCam(car.x, gy + 1.2, car.z, tx, ty, tz, 3.6);
     tx = cleared.x; ty = Math.max(cleared.y, gy + 1.35); tz = cleared.z;
     const k = 1 - Math.exp(-4.2 * dt);
+    if (cam.near > 0.2) {
+      cam.near = 0.12;
+      cam.updateProjectionMatrix();
+    }
     cam.position.x += (tx - cam.position.x) * k;
     cam.position.y += (ty - cam.position.y) * k;
     cam.position.z += (tz - cam.position.z) * k;

@@ -29,7 +29,9 @@ const BASE = {
   sensitivity: 1,
   quality: 'med',
   motionBlur: true,
-  weatherLock: 'auto'
+  weatherLock: 'auto',
+  camera: 'third',
+  topNorth: true
 };
 
 export const settings = {
@@ -40,6 +42,8 @@ export const settings = {
     const keys = Object.assign({}, DEFAULT_KEYS, saved.keys || {});
     this.data = Object.assign({}, BASE, saved, { keys });
     if (!QUALITY[this.data.quality]) this.data.quality = 'med';
+    if (['third', 'first', 'second', 'top'].indexOf(this.data.camera) < 0) this.data.camera = 'third';
+    if (typeof this.data.topNorth !== 'boolean') this.data.topNorth = true;
     return this.data;
   },
   save() {

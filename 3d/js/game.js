@@ -49,6 +49,11 @@ export const game = {
     this.city = buildCity();
     gfx.world.add(this.city.group);
     this.city.setBuildingShadows(settings.quality().buildingShadows);
+    const savedCam = settings.data && settings.data.camera;
+    if (savedCam === 'first' || savedCam === 'second' || savedCam === 'third' || savedCam === 'top') {
+      gfx.view = savedCam;
+      gfx.pip = savedCam === 'second';
+    }
     this._bindActions();
     hub.onPoi = (id) => this._poi(id);
     hub.onMark = (mark) => ui.showPlace(mark.name, mark.blurb || mark.text || '');
@@ -121,6 +126,8 @@ export const game = {
       return true;
     };
     actions.cycleCam = () => this._cycleCam();
+    actions.setCamera = (id) => this.setCamera(id);
+    actions.setTopNorth = (on) => this.setTopNorth(on);
     actions.toTitle = () => {
       this._leavePlay();
       this.mode = 'title';
@@ -253,6 +260,7 @@ export const game = {
     audio.startMusic('hub');
     audio.stopEngine();
     career.save();
+    this._showCam(gfx.view);
   },
 
   _leavePlay() {
@@ -355,13 +363,42 @@ export const game = {
     }
   },
 
+  setCamera(id) {
+    const order = ['third', 'first', 'second', 'top'];
+    if (order.indexOf(id) < 0) return gfx.view;
+    gfx.view = id;
+    gfx.pip = id === 'second';
+    if (gfx._pipQuad && id !== 'second') gfx._pipQuad.visible = false;
+    if (settings.data) settings.data.camera = id;
+    settings.save();
+    this._showCam(id);
+    return id;
+  },
+
+  setTopNorth(on) {
+    if (settings.data) settings.data.topNorth = !!on;
+    settings.save();
+    if (gfx.view === 'top') this._showCam('top');
+    return !!(settings.data && settings.data.topNorth);
+  },
+
   _cycleCam() {
     const name = gfx.cycle();
+    if (settings.data) settings.data.camera = name;
+    settings.save();
+    this._showCam(name);
+    return name;
+  },
+
+  _showCam(name) {
+    const labels = { third: 'Chase', first: 'Cockpit', second: 'Front', top: 'Top' };
     const el = document.getElementById('cam-name');
     if (el) {
       el.hidden = false;
-      el.textContent = name === 'first' ? 'COCKPIT' : name === 'second' ? 'FRONT' : 'CHASE';
+      el.classList.add('on');
+      el.textContent = 'Camera: ' + (labels[name] || 'Chase') + ' [V]';
     }
+    this._camLabel = 2.6;
     return name;
   },
 
@@ -426,6 +463,13 @@ export const game = {
   },
 
   present(dt) {
+    if (this._camLabel > 0) {
+      this._camLabel -= dt;
+      if (this._camLabel <= 0) {
+        const el = document.getElementById('cam-name');
+        if (el) { el.hidden = true; el.classList.remove('on'); }
+      }
+    }
     const time = career.state ? career.state.worldTime : (this._titleTime == null ? 0.72 : this._titleTime);
     let theme = 'city';
     let atmoTime = time;
@@ -443,6 +487,7 @@ export const game = {
 
     if (photo.active) photo.apply();
     else if (this.mode === 'title') {
+      gfx.camera.up.set(0, 1, 0);
       const t = performance.now() / 1000;
       const r = 120 + Math.sin(t * 0.15) * 18;
       gfx.camera.position.set(Math.cos(t * 0.08) * r, 34 + Math.sin(t * 0.2) * 6, Math.sin(t * 0.08) * r);

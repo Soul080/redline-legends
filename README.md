@@ -1,6 +1,6 @@
 # Redline Legends
 
-**Version:** v1.2.2
+**Version:** v1.2.3
 
 **[Play now](https://soul080.github.io/redline-legends/)**
 

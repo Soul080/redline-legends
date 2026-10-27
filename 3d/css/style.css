@@ -248,8 +248,8 @@ body.touch.mode-drag #touch { display: flex; justify-content: space-between; }
   border: 1px solid var(--line); font-size: 18px;
 }
 #touch button.on { background: rgba(46, 230, 255, 0.35); }
-#cam-name { position: fixed; top: 122px; left: 50%; transform: translateX(-50%); z-index: 6; letter-spacing: 3px; font-size: 12px; color: #ffe03b; pointer-events: none; text-shadow: 0 0 8px #000; }
-body.mode-hub #cam-name, body.mode-race #cam-name, body.mode-drag #cam-name, body.mode-street #cam-name { display: block; }
+#cam-name { display: none; position: fixed; top: 122px; left: 50%; transform: translateX(-50%); z-index: 6; letter-spacing: 0.04em; font-size: 14px; color: #fff; background: #0c0816; border: 1px solid #fff; border-radius: 8px; padding: 4px 10px; pointer-events: none; }
+#cam-name.on { display: block; }
 #touch [data-touch="steal"] { display: none; width: 64px; height: 64px; font-size: 11px; background: rgba(255, 59, 107, 0.45); }
 #touch [data-touch="camera"] { width: 64px; height: 64px; font-size: 11px; }
 #btn-view-touch { display: none; position: fixed; right: 16px; top: 112px; bottom: auto; z-index: 6; width: 52px; height: 36px; font-size: 13px; font-weight: bold; }

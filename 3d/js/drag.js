@@ -6,7 +6,7 @@
 
 import { RL } from './data.js';
 import { career } from './state.js';
-import { blankVehicle, physFromStats } from './drive.js';
+import { blankVehicle, physFromStats, playerSteer } from './drive.js';
 import { buildCar, updateCarVisual, carClass, disposeCar } from './cars.js';
 import { gfx } from './renderer.js';
 import { clamp, rand, pick } from './util.js';
@@ -141,7 +141,7 @@ export const drag = {
       p.speed = 0;
       if (p.wreckHold <= 0) this._dropPlayer(p);
     } else {
-      this._step(p, dt, { gas, brake, steer: (input.down('right') ? 1 : 0) - (input.down('left') ? 1 : 0), green, human: true });
+      this._step(p, dt, { gas, brake, steer: playerSteer(input), green, human: true });
       if (p.damage >= 100 && !(p.invuln > 0)) this._detonatePlayer(p);
     }
     if (this.ai && this.ai.exploded) {
