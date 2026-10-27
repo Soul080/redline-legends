@@ -1,0 +1,289 @@
+/* Redline Legends 3D — glass HUD over a full-viewport WebGL canvas.
+   Panels dock to the right so a car you're painting stays in frame. */
+
+:root {
+  --bg: #07060f;
+  --ink: #f4f1ff;
+  --dim: #a79bb8;
+  --cyan: #2ee6ff;
+  --pink: #ff2ef0;
+  --gold: #ffe03b;
+  --good: #7dff5a;
+  --bad: #ff3b6b;
+  --glass: rgba(10, 8, 22, 0.72);
+  --line: rgba(46, 230, 255, 0.35);
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+
+#view { position: fixed; inset: 0; z-index: 0; }
+#view canvas { width: 100%; height: 100%; display: block; }
+#view.filter-noir canvas { filter: grayscale(1) contrast(1.25); }
+#view.filter-sunset canvas { filter: sepia(0.55) saturate(1.4) contrast(1.05); }
+#view.filter-neon canvas { filter: saturate(1.7) contrast(1.15) hue-rotate(-8deg); }
+
+#boot-error {
+  position: fixed; inset: 12px auto auto 12px; z-index: 80;
+  max-width: 36rem; padding: 12px 14px; background: #3a1020; color: #ffd0dc;
+  border: 1px solid var(--bad);
+}
+
+#title {
+  position: fixed; inset: 0; z-index: 5;
+  display: none; flex-direction: column; justify-content: flex-end;
+  padding: 7vh 8vw 8vh;
+  background: linear-gradient(90deg, rgba(7,6,15,0.78) 0%, rgba(7,6,15,0.15) 55%, transparent 100%);
+  pointer-events: none;
+}
+body.mode-title #title { display: flex; }
+.brand h1 {
+  margin: 0; font-size: clamp(52px, 8vw, 108px); line-height: 0.86; letter-spacing: 0.04em;
+  text-shadow: 0 0 24px rgba(255, 46, 240, 0.55), 0 0 2px #fff;
+}
+.kicker { margin: 0 0 8px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--cyan); font-size: 12px; }
+#game-version { margin: 0 0 16px; letter-spacing: 3px; color: var(--gold); font-size: 13px; }
+.sub {
+  margin: 8px 0 0; display: inline-block; padding: 2px 10px; border: 1px solid var(--pink);
+  color: var(--pink); letter-spacing: 0.4em; font-size: 13px;
+}
+.title-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; pointer-events: auto; }
+.hint { color: var(--dim); font-size: 13px; margin-top: 16px; }
+
+button.primary, .title-actions button, .panel button, #photo-ui button, #hud button {
+  background: rgba(14, 12, 28, 0.8);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 10px 16px;
+}
+button.primary, .title-actions button.primary {
+  background: linear-gradient(180deg, #ff4af2, #c016b0);
+  border-color: #ff9af6;
+  color: #fff;
+  font-weight: 700;
+}
+button:hover { border-color: var(--cyan); }
+button:disabled { opacity: 0.4; cursor: default; }
+button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+kbd { border: 1px solid #5a4a70; border-bottom-width: 2px; padding: 0 5px; border-radius: 3px; font-size: 12px; }
+
+#hud, #race-hud, #drag-hud, #speedo, #minimap, #prompt, #callout, #wanted, #photo-ui, #touch {
+  display: none;
+}
+body.mode-hub #hud,
+body.mode-hub #speedo,
+body.mode-hub #minimap,
+body.mode-race #race-hud,
+body.mode-race #speedo,
+body.mode-race #minimap,
+body.mode-drag #drag-hud,
+body.mode-drag #speedo { display: block; }
+/* These nodes start hidden. The `hidden` attribute is what the sim toggles;
+   without an override the rule above keeps prompts, stars, and the countdown off. */
+#prompt:not([hidden]),
+#callout:not([hidden]),
+#countdown:not([hidden]),
+#wanted:not([hidden]) { display: block; }
+body.hide-hud #hud,
+body.hide-hud #race-hud,
+body.hide-hud #drag-hud,
+body.hide-hud #speedo,
+body.hide-hud #minimap,
+body.hide-hud #wanted { display: none !important; }
+
+#hud {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 4;
+  display: none; grid-template-columns: 1.2fr 1fr 1fr auto; gap: 16px;
+  padding: 12px 16px; background: linear-gradient(180deg, rgba(7,6,15,0.75), transparent);
+  pointer-events: none;
+}
+body.mode-hub #hud { display: grid; }
+.hud-nav { pointer-events: auto; display: flex; gap: 6px; align-items: flex-start; }
+.hud-nav button { padding: 6px 8px; font-size: 12px; }
+#hud-name { font-weight: 700; letter-spacing: 0.04em; }
+#hud-money { color: var(--good); font-size: 20px; font-weight: 700; }
+#hud-respect { color: var(--gold); }
+.clock { color: var(--cyan); font-size: 13px; }
+.xp { height: 6px; background: #241c33; border-radius: 99px; margin-top: 4px; overflow: hidden; }
+.xp i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--cyan), var(--pink)); }
+.small { color: var(--dim); font-size: 12px; }
+.dim { color: var(--dim); }
+
+#wanted {
+  position: fixed; top: 78px; left: 50%; transform: translateX(-50%);
+  z-index: 4; color: #fff; background: var(--bad); letter-spacing: 0.18em;
+  padding: 6px 16px; font-weight: 800; animation: pulse 0.6s infinite alternate;
+  white-space: nowrap;
+}
+#wanted.stars-0 { animation: none; background: #1a4fd0; }
+#wanted.stars-1 { background: #c45a12; }
+#wanted.stars-2 { background: #d23a2a; }
+#wanted.stars-3 { background: #e01840; }
+#wanted.stars-4, #wanted.stars-5 { background: #ff2a4a; }
+#wanted.role-police.stars-0 { background: #1a4fd0; }
+#wanted.role-criminal.stars-0 { background: #6a1460; animation: none; }
+#wanted .bounty { letter-spacing: 0; color: #b6ff8a; font-weight: 800; margin-left: 6px; }
+@keyframes pulse { from { opacity: 0.7; } to { opacity: 1; } }
+
+#race-hud, #drag-hud {
+  position: fixed; top: 16px; left: 16px; z-index: 4;
+  background: var(--glass); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 14px; min-width: 180px; backdrop-filter: blur(8px);
+}
+#race-pos, #drag-gear { font-size: 28px; font-weight: 800; letter-spacing: 0.04em; }
+#race-order { margin: 8px 0 0; font-family: inherit; white-space: pre; color: var(--dim); }
+.rpm { height: 10px; background: #1b1528; margin: 8px 0; border-radius: 99px; overflow: hidden; }
+.rpm i { display: block; height: 100%; width: 0; background: var(--cyan); }
+#drag-shift { color: var(--gold); font-weight: 700; margin-top: 6px; }
+
+#speedo {
+  position: fixed; right: 96px; bottom: 18px; z-index: 4;
+  background: var(--glass); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 14px; min-width: 140px; backdrop-filter: blur(8px);
+}
+.speed-row { display: flex; align-items: baseline; gap: 6px; }
+#speed-num { font-size: 40px; font-weight: 800; line-height: 1; }
+.meter { display: grid; grid-template-columns: 42px 1fr; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 0.08em; color: var(--dim); margin-top: 4px; }
+.meter i { display: block; height: 6px; width: 0; background: var(--cyan); border-radius: 99px; }
+.meter.dmg i { background: var(--bad); }
+.meter.hp i { background: var(--good); }
+.meter.hp.low i { background: var(--bad); }
+
+#minimap {
+  position: fixed; left: 16px; bottom: 16px; z-index: 4;
+  border: 1px solid var(--line); border-radius: 8px; background: transparent;
+}
+
+#prompt, #callout, #countdown {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 6;
+  text-align: center;
+}
+#prompt { bottom: 24%; background: var(--glass); border: 1px solid var(--gold); padding: 10px 18px; border-radius: 8px; max-width: min(520px, calc(100% - 280px)); }
+#callout { top: 22%; font-size: 28px; font-weight: 800; text-shadow: 0 2px 12px #000; }
+#countdown { top: 28%; font-size: 120px; font-weight: 800; color: var(--gold); text-shadow: 0 0 24px #000; }
+
+#toasts { position: fixed; left: 16px; top: 118px; right: auto; z-index: 7; display: flex; flex-direction: column; gap: 8px; max-width: 260px; }
+.toast {
+  background: var(--glass); border: 1px solid var(--cyan); border-radius: 6px;
+  padding: 8px 12px; min-width: 180px; animation: in 0.25s ease;
+}
+.toast.out { opacity: 0; transition: opacity 0.4s; }
+@keyframes in { from { transform: translateY(-8px); opacity: 0; } }
+
+.panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100%);
+  z-index: 8; background: rgba(8, 6, 18, 0.92); border-left: 1px solid var(--line);
+  transform: translateX(104%); transition: transform 0.18s ease;
+  display: flex; flex-direction: column; backdrop-filter: blur(10px);
+}
+.panel.open { transform: none; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.panel-head h2 { margin: 0; font-size: 20px; letter-spacing: 0.06em; }
+.panel-body { padding: 14px 16px 28px; overflow: auto; }
+.panel .x { padding: 4px 10px; }
+.panel h3 { margin: 16px 0 8px; color: var(--cyan); font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; }
+.panel p { line-height: 1.45; }
+.row, .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.tabs button.on { border-color: var(--pink); color: var(--pink); }
+.card {
+  display: flex; justify-content: space-between; gap: 8px; align-items: center;
+  border: 1px solid #3a3350; border-radius: 8px; padding: 8px 10px; margin: 6px 0;
+}
+.card.done { opacity: 0.55; }
+.rar { font-size: 11px; letter-spacing: 0.08em; }
+.eq { color: var(--good); }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: middle; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.swatches button { width: 28px; height: 28px; padding: 0; border-radius: 50%; }
+.stats .stat { display: grid; grid-template-columns: 92px 1fr 28px; gap: 8px; align-items: center; margin: 4px 0; font-size: 13px; }
+.bar { position: relative; height: 8px; background: #241c33; border-radius: 99px; overflow: hidden; }
+.bar i, .bar b { position: absolute; left: 0; top: 0; bottom: 0; }
+.bar i { background: var(--cyan); }
+.bar b { background: var(--good); }
+.setting { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+.setting span:first-child { width: 120px; color: var(--dim); }
+.setting input[type="range"] { flex: 1; }
+.choices { display: flex; flex-direction: column; gap: 8px; }
+.speaker { font-weight: 800; letter-spacing: 0.08em; margin-bottom: 6px; }
+.headline { font-size: 32px; font-weight: 800; color: var(--gold); }
+.rewards { display: flex; gap: 16px; font-size: 18px; margin: 8px 0; }
+.rewards div:first-child { color: var(--good); }
+table.standings { width: 100%; border-collapse: collapse; margin: 8px 0; }
+table.standings td { padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+table.standings tr.me { color: var(--gold); }
+.achs .ach { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.achs .ach.got b { color: var(--good); }
+.achs .ach span { display: block; color: var(--dim); font-size: 12px; }
+.note { color: var(--gold); }
+input[type="text"], #nameInput {
+  width: 100%; padding: 10px; background: #120e1c; border: 1px solid var(--line); border-radius: 4px;
+}
+
+#photo-ui {
+  position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 6;
+  background: var(--glass); border: 1px solid var(--pink); border-radius: 10px;
+  padding: 10px 12px; backdrop-filter: blur(8px);
+}
+body.photo #photo-ui { display: block; }
+#photo-ui p { margin: 0 0 8px; color: var(--dim); font-size: 13px; }
+
+#touch { position: fixed; inset: auto 0 0 0; z-index: 5; pointer-events: none; padding: 12px; }
+body.touch.mode-hub #touch,
+body.touch.mode-race #touch,
+body.touch.mode-drag #touch { display: flex; justify-content: space-between; }
+.pad, .acts { display: grid; gap: 8px; pointer-events: auto; }
+.acts { grid-template-columns: repeat(3, 64px); }
+.pad { grid-template-columns: 64px 64px 64px; grid-template-areas: ". u ." "l d r"; }
+.pad [data-touch="up"] { grid-area: u; }
+.pad [data-touch="down"] { grid-area: d; }
+.pad [data-touch="left"] { grid-area: l; }
+.pad [data-touch="right"] { grid-area: r; }
+#touch button {
+  width: 64px; height: 64px; border-radius: 12px; background: rgba(10,8,22,0.55);
+  border: 1px solid var(--line); font-size: 18px;
+}
+#touch button.on { background: rgba(46, 230, 255, 0.35); }
+#cam-name { position: fixed; top: 122px; left: 50%; transform: translateX(-50%); z-index: 6; letter-spacing: 3px; font-size: 12px; color: #ffe03b; pointer-events: none; text-shadow: 0 0 8px #000; }
+body.mode-hub #cam-name, body.mode-race #cam-name, body.mode-drag #cam-name, body.mode-street #cam-name { display: block; }
+#touch [data-touch="steal"] { display: none; width: 64px; height: 64px; font-size: 11px; background: rgba(255, 59, 107, 0.45); }
+#touch [data-touch="camera"] { width: 64px; height: 64px; font-size: 11px; }
+#btn-view-touch { display: none; position: fixed; right: 16px; top: 112px; bottom: auto; z-index: 6; width: 52px; height: 36px; font-size: 13px; font-weight: bold; }
+body.touch.mode-hub #btn-view-touch,
+body.touch.mode-race #btn-view-touch,
+body.touch.mode-drag #btn-view-touch,
+body.touch.mode-street #btn-view-touch { display: block; }
+body.touch.mode-hub #touch [data-touch="steal"] { display: inline-flex; align-items: center; justify-content: center; }
+.acts { align-content: end; }
+
+#editor-ui {
+  display: none;
+  position: fixed; left: 16px; top: 16px; z-index: 6; width: min(420px, calc(100% - 32px));
+  flex-direction: column; gap: 8px;
+  background: rgba(8, 6, 18, 0.88); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px; backdrop-filter: blur(8px);
+}
+body.mode-editor #editor-ui { display: flex; }
+#editor-ui .ed-row, #editor-ui .ed-top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#editor-ui label { display: flex; gap: 8px; align-items: center; }
+#editor-ui input, #editor-ui textarea, #editor-ui select {
+  background: #120e1c; border: 1px solid var(--line); color: var(--ink); border-radius: 4px; padding: 6px;
+}
+#editor-ui textarea, #editor-ui input[type="text"], #ed-name { width: 100%; }
+#ed-help { margin: 0; color: var(--dim); }
+
+@media (max-width: 720px) {
+  #hud { grid-template-columns: 1fr 1fr; }
+  .hud-nav { grid-column: 1 / -1; }
+  #speedo { bottom: 168px; right: 16px; }
+  #minimap { bottom: 168px; }
+  #prompt { bottom: 42%; max-width: calc(100% - 32px); }
+  .panel { width: 100%; }
+}
+body.touch #speedo { bottom: 168px; }
+body.touch #minimap { bottom: 168px; }
+body.touch #prompt { bottom: 46%; }

@@ -45,6 +45,7 @@ RL.Roles = (function () {
     if ((s.roleCooldownUntil || 0) > Date.now()) return { ok: false, reason: 'Cooldown ' + Math.ceil((s.roleCooldownUntil - Date.now()) / 1000) + 's.' };
     s.role = role;
     s.roleCooldownUntil = Date.now() + COOLDOWN;
+    s.roleSwitchAt = s.roleCooldownUntil - 60000;
     s.iaStrikes = 0;
     if (role !== 'police' && RL.Hub.player) RL.Hub.player.siren = false;
     if (RL.Game.unlockAch) { if (role === 'police') RL.Game.unlockAch('sp_recruit'); if (role === 'criminal') RL.Game.unlockAch('sp_dirty'); }
@@ -60,7 +61,7 @@ RL.Roles = (function () {
     addXp('police', -12);
     RL.UI.toast('Internal Affairs: ' + kind + ' (' + RL.fmtMoney(fine) + ')', '#ff8a2e');
     if (s.iaStrikes >= 3) {
-      s.role = 'neutral'; s.roleCooldownUntil = Date.now() + COOLDOWN; s.iaStrikes = 0;
+      s.role = 'neutral'; s.roleCooldownUntil = Date.now() + COOLDOWN; s.roleSwitchAt = s.roleCooldownUntil - 60000; s.iaStrikes = 0;
       if (RL.Hub.player) RL.Hub.player.siren = false;
       RL.UI.toast('Badge suspended. You are neutral.', '#ff3b6b');
       if (RL.Game.unlockAch) RL.Game.unlockAch('sp_ia');

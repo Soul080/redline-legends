@@ -1,10 +1,12 @@
 # Redline Legends
 
-**Version:** v1.1.3
+**Version:** v1.2.1
 
 **[Play now](https://soul080.github.io/redline-legends/)**
 
 A finished browser street-racing RPG. You start as a nobody, drive a neon city, and climb leagues by winning races, beating bosses, and building a car. Spend cash on parts and tuning, and level up into perks and driver stats. The city has districts, drag racing, police heat, and three lives you can switch at Role HQ. It is plain HTML, CSS, and JavaScript with no build step. Progress is saved in the browser.
+
+This build is the combined 2D and 3D city. One career is shared between them. On the title screen, **Switch to 3D** (or **Switch to 2D**) changes the view. **F3** switches while you play, and the corner **2D** / **3D** button does the same. The last choice is saved. If WebGL cannot start, the game stays in 2D.
 
 ## Run
 

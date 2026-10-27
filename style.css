@@ -18,6 +18,10 @@ kbd { background: #222; border: 1px solid #555; border-radius: 4px; padding: 0 5
 .title-btns { display: flex; flex-direction: column; gap: 10px; min-width: 240px; }
 .title-btns .big { font-size: 22px; padding: 12px; }
 .hint { color: #9fb3c8; font-size: 13px; margin-top: 18px; }
+#view-note { color: #ffe03b; max-width: 420px; }
+#mode-fab { position: fixed; right: 14px; bottom: 14px; z-index: 40; min-width: 64px; min-height: 64px; font-weight: bold; background: rgba(20, 10, 40, 0.92); border-color: #2ee6ff; }
+#view3d { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 20; background: #07060f; }
+body.view-3d #game, body.view-3d #title, body.view-3d #hud, body.view-3d #touch, body.view-3d #panel, body.view-3d #toasts { visibility: hidden; pointer-events: none; }
 
 /* ---------- Hub HUD ---------- */
 #hud { position: fixed; top: 0; left: 0; right: 0; display: none; justify-content: space-between; padding: 10px; z-index: 3; pointer-events: none; }
@@ -140,6 +144,21 @@ body.mode-drag #touch .t-drift { display: none; }
 .phone-compose { display: flex; gap: 8px; margin-top: 8px; }
 .phone-compose input[type=text] { flex: 1; font-size: 16px; user-select: text; -webkit-user-select: text; }
 #hud-clock { color: #2ee6ff; letter-spacing: 0.5px; }
+#bounty-board { display: none; position: fixed; top: 64px; right: 10px; z-index: 4; width: min(240px, 48vw); max-height: 46vh; overflow: auto; padding: 8px 10px; background: rgba(8, 6, 24, .82); border: 1px solid rgba(255, 224, 59, .55); border-radius: 10px; pointer-events: auto; }
+body.mode-hub #bounty-board.on { display: block; }
+#bounty-board h3 { margin: 0 0 4px; font-size: 13px; color: #ffe03b; letter-spacing: 0.4px; }
+#bounty-board .bb-sub { color: #9fb3c8; font-size: 11px; margin-bottom: 6px; }
+#bounty-board ul { list-style: none; margin: 0; padding: 0; }
+#bounty-board li { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; font-size: 12px; padding: 3px 0; border-top: 1px solid rgba(255, 255, 255, .06); }
+#bounty-board li.me { color: #2ee6ff; }
+#bounty-board .bb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#bounty-board .bb-role { color: #9fb3c8; font-size: 10px; }
+#bounty-board .bb-role.police { color: #7aa2ff; } #bounty-board .bb-role.criminal { color: #ff3b6b; } #bounty-board .bb-role.neutral { color: #ffe03b; }
+#bounty-board .bb-money { color: #7dff5a; font-weight: bold; text-align: right; }
+#bounty-board .bb-stars { color: #ffe03b; text-align: right; font-size: 11px; }
+#bounty-board .bb-actions { display: flex; gap: 6px; margin-top: 8px; }
+#bounty-board .bb-actions button { font-size: 11px; padding: 4px 8px; }
+.sv-note { color: #ffe03b; }
 .carprev { width: 100%; max-width: 280px; display: block; margin: 0 auto 8px; }
 body.photo #hud, body.photo #touch { opacity: 0.35; }
 

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Redline Legends 3D</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="mode-title">
+  <div id="view"></div>
+
+  <div id="boot-error" hidden></div>
+
+  <section id="title">
+    <div class="brand">
+      <p class="kicker">Open city · Four leagues · One phantom</p>
+      <h1>REDLINE<br>LEGENDS</h1>
+      <p class="sub">3D</p>
+      <p class="ver" id="game-version"></p>
+    </div>
+    <div class="title-actions">
+      <button id="btn-continue" class="primary" disabled>Continue</button>
+      <button id="btn-new">New Career</button>
+      <button id="btn-settings">Settings</button>
+      <button id="btn-view">Switch to 2D</button>
+      <button id="btn-help">How to Play</button>
+    </div>
+    <p class="hint">Arrows or WASD to drive · Q to step out · E to enter a door · F for photo mode</p>
+  </section>
+
+  <header id="hud">
+    <div class="hud-left">
+      <div id="hud-name">Rookie</div>
+      <div class="xp"><i id="hud-xp"></i></div>
+      <div id="hud-xptext" class="small"></div>
+    </div>
+    <div class="hud-mid">
+      <div id="hud-league">League 1</div>
+      <div id="hud-car" class="small"></div>
+    </div>
+    <div class="hud-right">
+      <div id="hud-money">$0</div>
+      <div id="hud-respect">★ 0</div>
+      <div id="hud-points" class="small"></div>
+      <div class="clock"><span id="hud-clock">18:00</span> · <span id="hud-weather">Clear</span></div>
+    </div>
+    <nav class="hud-nav">
+      <button data-open="inv">Inv</button>
+      <button data-open="skills">Skills</button>
+      <button data-open="quests">Quests</button>
+      <button data-open="ach">Ach</button>
+      <button data-open="settings">Set</button>
+      <button data-open="menu">Menu</button>
+      <button data-open="photo">Photo</button>
+      <button id="btn-cam" type="button">Cam</button>
+    </nav>
+  </header>
+
+  <div id="wanted" hidden>WANTED</div>
+  <div id="cam-name" hidden>CHASE</div>
+
+  <div id="race-hud" hidden>
+    <div id="race-pos">1/6</div>
+    <div id="race-lap">LAP 1/3</div>
+    <div id="race-obj"></div>
+    <pre id="race-order"></pre>
+  </div>
+
+  <div id="drag-hud" hidden>
+    <div id="drag-gear">GEAR 1</div>
+    <div class="rpm"><i id="drag-rpm"></i></div>
+    <div id="drag-dist">0 / 402 m</div>
+    <div id="drag-et">STAGED</div>
+    <div id="drag-shift">HOLD BRAKE + GAS</div>
+  </div>
+
+  <div id="speedo" hidden>
+    <div class="speed-row"><span id="speed-num">0</span><small>km/h</small></div>
+    <div class="meter"><span>NITRO</span><i id="nitro-fill"></i></div>
+    <div class="meter hp"><span>HP</span><i id="hp-fill"></i></div>
+    <div class="meter dmg"><span>DMG</span><i id="dmg-fill"></i></div>
+  </div>
+
+  <canvas id="minimap" width="168" height="168" hidden></canvas>
+  <div id="prompt" hidden></div>
+  <div id="callout" hidden></div>
+  <div id="countdown" hidden></div>
+  <div id="toasts"></div>
+  <aside id="panel" class="panel"></aside>
+
+  <div id="photo-ui" hidden>
+    <p>Photo mode · drag to orbit · arrows to nudge · wheel to zoom</p>
+    <div class="row">
+      <button data-photo="shot">Shutter</button>
+      <button data-photo="filter" data-arg="normal">Normal</button>
+      <button data-photo="filter" data-arg="noir">Noir</button>
+      <button data-photo="filter" data-arg="sunset">Sunset</button>
+      <button data-photo="filter" data-arg="neon">Neon</button>
+      <button data-photo="weather">Weather</button>
+      <button data-photo="hud">HUD</button>
+      <button data-photo="exit">Exit</button>
+    </div>
+  </div>
+
+  <div id="touch">
+    <div class="pad">
+      <button data-touch="up">▲</button>
+      <button data-touch="left">◀</button>
+      <button data-touch="down">▼</button>
+      <button data-touch="right">▶</button>
+    </div>
+    <div class="acts">
+      <button data-touch="action">ACT</button>
+      <button data-touch="steal">STEAL</button>
+      <button data-touch="drift">DRIFT</button>
+      <button data-touch="nitro">NITRO</button>
+      <button data-touch="pause">II</button>
+      <button data-touch="camera">CAM</button>
+    </div>
+  </div>
+  <button id="btn-view-touch" type="button">2D</button>
+
+  <script>
+    (function () {
+      var el = document.getElementById('boot-error');
+      window.__RL3_fail = function (msg) {
+        if (!el) return;
+        el.hidden = false;
+        el.textContent = msg;
+      };
+      window.addEventListener('error', function (e) {
+        if (!e) return;
+        var msg = (e.error && e.error.message) || e.message;
+        if (!msg) return;
+        if (String(e.filename || '').indexOf('bundle.js') === -1 && e.target && e.target !== window) return;
+        window.__RL3_fail('Redline Legends 3D failed to start: ' + msg);
+      });
+    })();
+  </script>
+  <!-- Classic script so file:// and Windows Python (text/plain .js) can boot. Three.js is inside the bundle. -->
+  <script src="../version.js"></script>
+  <script src="js/bundle.js" onerror="__RL3_fail('Redline Legends 3D could not load js/bundle.js. Double-click start.bat, start.command, or start.sh in this folder so a local server opens the game. Opening index.html directly only works when the bundle file sits next to this page.')"></script>
+</body>
+</html>

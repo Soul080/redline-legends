@@ -11,8 +11,8 @@ RL.DESKTOP_ORIGIN = 'app://redline';
 RL.SAVE_KEY = 'redline_legends_save_v1';
 RL.SAVE_BACKUP_KEY = 'redline_legends_save_v1_backup';
 RL.SAVE_VERSION = 9;
-RL.GAME_VERSION = '1.1.3';
-RL.VERSION = RL.GAME_VERSION;
+/* Release label. The string lives in version.js (RL_VERSION), not here. */
+RL.VERSION = (typeof RL_VERSION === 'string' && RL_VERSION) ? RL_VERSION : '';
 RL.SETTINGS_KEY = 'redline_legends_settings_v1';
 RL.GHOST_KEY = 'redline_legends_ghosts_v1';
 
@@ -23,7 +23,7 @@ RL.loadSettings = function () {
   /* aiChat / aiChatDeclined: free-form NPC chat opt-in, owned by js/ai-npc.js.
      difficulty: rival AI pace (Easy / Normal / Hard / Legend).
      explosions: 100% damage detonates the car (city tow / race checkpoint). */
-  RL.settings = Object.assign({ master: 0.7, sfx: 0.8, music: 0.4, touch: 'auto', shake: true, sensitivity: 1, aiChat: false, aiChatDeclined: false, difficulty: 'normal', explosions: true, keys: JSON.parse(JSON.stringify(RL.DEFAULT_KEYS)) }, s);
+  RL.settings = Object.assign({ master: 0.7, sfx: 0.8, music: 0.4, touch: 'auto', shake: true, sensitivity: 1, aiChat: false, aiChatDeclined: false, difficulty: 'normal', explosions: true, view: '2d', keys: JSON.parse(JSON.stringify(RL.DEFAULT_KEYS)) }, s);
   RL.settings.keys = Object.assign({}, RL.DEFAULT_KEYS, (s && s.keys) || {});
   if (!RL.DIFFICULTIES || !RL.DIFFICULTIES[RL.settings.difficulty]) RL.settings.difficulty = 'normal';
 };
@@ -48,7 +48,7 @@ RL.Game = {
 
   /* ---------- Save data ---------- */
   newState(name) {
-    const starter = { uid: RL.uid(), id: 'pip', damage: 0, parts: {}, tune: { gear: 0, aero: 0 }, paint: null };
+    const starter = { uid: RL.uid(), id: 'pip', damage: 0, parts: {}, tune: { gear: 0, aero: 0 }, paint: null, look: { paint: null, decal: 'none', decalColor: '#ffffff' }, style: { color: null, rims: 0, decal: 'none', underglow: false } };
     this.state = {
       version: RL.SAVE_VERSION, name: name || 'Rookie', money: 600, xp: 0, level: 1, skillPoints: 0, statPoints: 0,
       stats: { reflexes: 1, control: 1, nerve: 1, tactics: 1 }, perks: [], respect: 0,
@@ -57,17 +57,21 @@ RL.Game = {
       quests: { active: ['m1'], done: [] }, questCounters: {}, flags: {}, talked: {}, claimed: {}, storyQueue: [],
       roles: {}, role: 'neutral', roleXp: { neutral: 0, criminal: 0, police: 0 }, roleCooldownUntil: 0, iaStrikes: 0,
       wanted: { heat: 0, stars: 0, peak: 0 }, found: {}, visited: { downtown: true }, clock: 10 * 60,
+      phone: { threads: {}, seen: {}, memory: {}, open: 'unknown' },
+      dragPrefs: { half: false, stake: true, pink: false }, dragStake: null,
       customTracks: [], multiplayer: { name: '', room: '', status: 'offline' }, difficulty: 'normal',
       achievements: {}, records: {}, totals: {
         races: 0, wins: 0, crashes: 0, nitro: 0, draft: 0, training: 0,
         drags: 0, dragWins: 0, evasions: 0, busts: 0, heists: 0, smuggles: 0, photos: 0, tags: 0,
         streets: 0, bustsAi: 0, explosions: 0, tows: 0, driveDist: 0, tuned: 0
       },
-      hub: { x: 15.5 * 40, y: 9.5 * 40, h: 0, speed: 0, inCar: true, joyride: null, hp: 100 }, playTime: 0, created: Date.now()
+      hub: { x: 15.5 * 40, y: 9.5 * 40, h: 0, speed: 0, inCar: true, joyride: null, hp: 100, summonCd: 0 },
+      hub3d: null, worldTime: 0.78, roleSwitchAt: 0, joyride: null, playTime: 0, created: Date.now()
     };
     // a Common tire part to show off the inventory from the start
     this.state.inventory.push(this.makePart('tires', 'common', false));
     this.save();
+    try { localStorage.removeItem('redline_legends_3d_save_v1'); } catch (e) { /* the shared career replaces it */ }
   },
   /* A slot is usable when it parses and still has a career. Corrupt JSON is not usable. */
   readSlot(key) {
@@ -93,11 +97,47 @@ RL.Game = {
       localStorage.setItem(RL.SAVE_KEY, next);
     } catch (e) { console.warn('Save failed', e); }
   },
+  /* A career saved by the old 3D-only build lives under a second key.
+     When the shared career already exists, only 3D-only fields are copied.
+     Money, cars, and quests are never added a second time. The old key is then removed. */
+  adoptLegacy3d() {
+    const legacyKey = 'redline_legends_3d_save_v1';
+    let raw = null;
+    try { raw = localStorage.getItem(legacyKey); } catch (e) { return; }
+    if (!raw) return;
+    let legacy = null;
+    try { legacy = JSON.parse(raw); } catch (e) { legacy = null; }
+    const usable = legacy && Array.isArray(legacy.cars) && legacy.cars.length;
+    const main = this.readSlot(RL.SAVE_KEY);
+    if (usable && main.ok) {
+      const s = main.save;
+      if (s.hub3d == null && legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
+        s.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
+      }
+      if (s.joyride == null && legacy.joyride) s.joyride = legacy.joyride;
+      if (s.worldTime == null && legacy.worldTime != null) s.worldTime = legacy.worldTime;
+      legacy.cars.forEach((lc) => {
+        const mc = s.cars.find((c) => c && lc && c.uid === lc.uid);
+        if (mc && !mc.style && lc.style) mc.style = lc.style;
+      });
+      try { localStorage.setItem(RL.SAVE_KEY, JSON.stringify(s)); } catch (e) { /* keep the in-memory career */ }
+    } else if (usable && !main.ok) {
+      if (legacy.hub && legacy.hub.z != null && legacy.hub.y == null) {
+        legacy.hub3d = { x: legacy.hub.x, z: legacy.hub.z, h: legacy.hub.h || 0, stolen: legacy.hub.stolen || null, parked: legacy.hub.parked || null };
+        legacy.hub = { x: 15.5 * 40, y: 9.5 * 40, h: 0, speed: 0, inCar: true };
+      }
+      try { localStorage.setItem(RL.SAVE_KEY, JSON.stringify(legacy)); } catch (e) { /* ignore */ }
+    }
+    try { localStorage.removeItem(legacyKey); } catch (e) { /* ignore */ }
+  },
   hasSave() {
-    try { return this.readSlot(RL.SAVE_KEY).ok || this.readSlot(RL.SAVE_BACKUP_KEY).ok; }
-    catch (e) { return false; }
+    try {
+      this.adoptLegacy3d();
+      return this.readSlot(RL.SAVE_KEY).ok || this.readSlot(RL.SAVE_BACKUP_KEY).ok;
+    } catch (e) { return false; }
   },
   load() {
+    this.adoptLegacy3d();
     let slot = this.readSlot(RL.SAVE_KEY);
     let restored = false;
     if (!slot.ok) {
@@ -302,6 +342,10 @@ RL.Game = {
     s.perks = [...new Set(s.perks.filter((id) => typeof id === 'string'))];
     if (!s.stats || typeof s.stats !== 'object') s.stats = { reflexes: 1, control: 1, nerve: 1, tactics: 1 };
     for (const k of Object.keys(RL.DRIVER_STATS)) s.stats[k] = Math.round(RL.clamp(s.stats[k] == null ? 1 : s.stats[k], 1, 20));
+    if (!s.league) s.league = 1;
+    if (!s.name) s.name = 'Rookie';
+    if (!s.progress || typeof s.progress !== 'object' || Array.isArray(s.progress)) s.progress = {};
+    if (!s.progress[s.league]) s.progress[s.league] = { races: [false, false, false], boss: false };
     s.money = Math.round(RL.clamp(s.money, 0, 1e9));
     s.respect = Math.round(RL.clamp(s.respect, -10000, 10000));
     s.xp = Math.round(RL.clamp(s.xp, 0, 1e9));
@@ -342,6 +386,14 @@ RL.Game = {
       if (!s.flags.seen_boss4 && s.storyQueue.indexOf('boss4') < 0) s.storyQueue.push('boss4');
       if (!s.flags.seen_epilogue && s.storyQueue.indexOf('epilogue') < 0) s.storyQueue.push('epilogue');
     }
+    const now = Date.now();
+    const until = Number(s.roleCooldownUntil) || 0;
+    const from3 = (Number(s.roleSwitchAt) || 0) + 60000;
+    const live = (t) => (t > now ? t : 0);
+    const end = Math.max(live(until), live(from3));
+    s.roleCooldownUntil = end;
+    if (end) s.roleSwitchAt = end - 60000;
+    if (s.worldTime == null) s.worldTime = 0.78;
     this.lockRewardClaims();
   },
   /* "scope:node:choiceIndex" so each dialogue or story choice is its own one-time payout. */
@@ -443,6 +495,9 @@ RL.Game = {
     return out;
   },
   carColor(car) {
+    if (car.style && car.style.color) return car.style.color;
+    if (car.paint) return car.paint;
+    if (car.look && car.look.paint) return car.look.paint;
     const p = car.parts && car.parts.paint && this.findPart(car.parts.paint);
     return (p && p.color) || this.carDef(car.id).color;
   },
@@ -856,6 +911,11 @@ RL.Game = {
     let last = performance.now(), acc = 0, saveTimer = 0;
     const STEP = 1 / 60;
     const frame = (now) => {
+      if (document.body.classList.contains('view-3d')) {
+        last = now;
+        requestAnimationFrame(frame);
+        return;
+      }
       let dt = Math.min(0.1, (now - last) / 1000); last = now; acc += dt;
       try {
         while (acc >= STEP) {
@@ -871,10 +931,13 @@ RL.Game = {
         else if (this.mode === 'editor' && RL.Editor) RL.Editor.draw(this.ctx);
         else if (RL.Modes && RL.Modes.has(this.mode)) RL.Modes.draw(this.mode, this.ctx);
         else RL.UI.drawTitleBg(this.ctx, now / 1000);
+        // City servers (js/servers.js). No-op when nobody is in a Downtown room.
+        if (RL.Servers && RL.Servers.tick) RL.Servers.tick(dt);
       } catch (e) { console.error(e); }
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
+    if (RL.Mode) RL.Mode.boot();
   }
 };
 window.addEventListener('load', () => RL.Game.boot());
