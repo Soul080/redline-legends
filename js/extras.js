@@ -217,6 +217,7 @@
       document.getElementById('game').style.filter = FILTERS[RL.Photo.filter] === 'none' ? '' : FILTERS[RL.Photo.filter];
     }
     if (e.code === 'KeyF' && !RL.UI.isOpen()) {
+      if (RL.Drive && RL.Drive.enterTarget && RL.Drive.enterTarget()) return;
       if (RL.Photo.active) RL.Photo.snap(); else RL.Photo.enter();
     }
     if (e.code === 'KeyH' && !RL.UI.isOpen() && !RL.Photo.active) RL.Daily.show();

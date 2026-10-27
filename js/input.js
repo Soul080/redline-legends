@@ -3,9 +3,9 @@
 RL.DEFAULT_KEYS = {
   up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'], left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'],
   drift: ['Space'], nitro: ['ShiftLeft', 'ShiftRight', 'KeyN'], action: ['KeyE', 'Enter'], pause: ['Escape', 'KeyP'],
-  steal: ['KeyC'], phone: ['KeyB'], summon: ['KeyV'], shift: ['KeyQ']
+  steal: ['KeyC'], enter: ['KeyF'], phone: ['KeyB'], summon: ['KeyV'], shift: ['KeyQ']
 };
-RL.ACTION_NAMES = { up: 'Accelerate / Up', down: 'Brake / Down', left: 'Steer Left', right: 'Steer Right', drift: 'Drift (handbrake)', nitro: 'Nitro', action: 'Interact / Confirm', pause: 'Pause / Menu', steal: 'Steal stopped car', phone: 'Phone', summon: 'Call car', shift: 'Drag shift' };
+RL.ACTION_NAMES = { up: 'Accelerate / Up', down: 'Brake / Down', left: 'Steer Left', right: 'Steer Right', drift: 'Drift (handbrake)', nitro: 'Nitro', action: 'Interact / Confirm', pause: 'Pause / Menu', steal: 'Steal stopped car', enter: 'Enter car', phone: 'Phone', summon: 'Call car', shift: 'Drag shift' };
 
 RL.Input = (function () {
   const keys = {}, pressed = {}, touch = {};

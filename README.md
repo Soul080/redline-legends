@@ -1,12 +1,18 @@
 # Redline Legends
 
-**Version:** v1.2.1
+**Version:** v1.2.2
 
 **[Play now](https://soul080.github.io/redline-legends/)**
 
 A finished browser street-racing RPG. You start as a nobody, drive a neon city, and climb leagues by winning races, beating bosses, and building a car. Spend cash on parts and tuning, and level up into perks and driver stats. The city has districts, drag racing, police heat, and three lives you can switch at Role HQ. It is plain HTML, CSS, and JavaScript with no build step. Progress is saved in the browser.
 
 This build is the combined 2D and 3D city. One career is shared between them. On the title screen, **Switch to 3D** (or **Switch to 2D**) changes the view. **F3** switches while you play, and the corner **2D** / **3D** button does the same. The last choice is saved. If WebGL cannot start, the game stays in 2D.
+
+A new career starts with a street tutorial. Each step advances only after you do it: drive, drift, nitro, open the map, use a door, start a race, pick up a wanted star, lose the police, take a car, and get back into your own. The payout is claimed once.
+
+Cars sit parked at curbs, lots, and driveways. They are not garage cars. Walk up and press F, E, or C (or ENTER on touch). A parked break-in is quieter than stopping a traffic car, and it only draws heat if a witness can see it. Yours shows **[F] Enter**. Someone else's shows **[F] Steal**.
+
+**Escape** is a separate endless chase from the title screen or the city menu. You start wanted, and the run lasts until the car's health hits zero. Score comes from survival time, near misses, wrecking pursuit cars, and cash pickups. Four maps rebuild each run: Glassline, Salt Span, Whiteout, and Pine Mile. Escape coins are a separate wallet and buy Escape cars only. Career cash from Escape is a small daily bonus with a hard cap. R restarts. Space is the handbrake. Shift or N is boost. Esc or P pauses.
 
 ## Run
 
@@ -66,4 +72,4 @@ Stage at the dragway building. Pick a quarter mile or a half mile. Hold gas and 
 
 **Touch**
 
-On-screen pad for movement, plus ACT, TXT, and CAR in the hub. DRIFT and NITRO show in a race. SHIFT replaces drift on the drag strip. A pause button stays up.
+On-screen pad for movement, plus ACT, TXT, CAR, and ENTER in the hub. DRIFT and NITRO show in a race. SHIFT replaces drift on the drag strip. Escape adds a restart button. A pause button stays up.

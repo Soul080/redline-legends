@@ -98,7 +98,7 @@ RL.UI = (function () {
   }
   function setMode(m) {
     mode = m;
-    document.body.classList.remove('mode-title', 'mode-hub', 'mode-race', 'mode-editor');
+    document.body.classList.remove('mode-title', 'mode-hub', 'mode-race', 'mode-editor', 'mode-drag', 'mode-escape');
     document.body.classList.add('mode-' + m);
     applyTouch();
     if (m === 'title') {
@@ -136,14 +136,14 @@ RL.UI = (function () {
       '<input id="nameInput" type="text" maxlength="14" value="Rookie" autocomplete="off"><div class="row"><button class="primary" data-act="start">Start Career ▶</button></div>',
       acts: { start: () => {
         const n = ($('nameInput').value || 'Rookie').trim().slice(0, 14) || 'Rookie';
-        G().newState(n); closeAll(); G().toHub(); showStory('intro');
+        G().newState(n); closeAll(); G().toHub(); showStory('intro', () => { if (RL.Tutorial) RL.Tutorial.startFresh(); });
       } } });
     if (G().hasSave()) open({ title: 'Start Over?', render: () => '<p>Starting a new game will overwrite your current save.</p><div class="row"><button class="primary" data-act="yes">Yes, new career</button><button data-act="back">Cancel</button></div>', acts: { yes: go } });
     else go();
     setTimeout(() => { const i = $('nameInput'); if (i) { i.focus(); i.select(); } }, 30);
   }
   function replaceOrOpen(v) { if (stack.length) replace(v); else open(v); }
-  function continueGame() { if (G().load()) { closeAll(); G().toHub(); toast('Welcome back, ' + S().name + '!'); } }
+  function continueGame() { if (G().load()) { closeAll(); G().toHub(); toast('Welcome back, ' + S().name + '!'); if (RL.Tutorial) RL.Tutorial.onContinue(); } }
 
   /* ---------------- Hub menu (Esc) ---------------- */
   function showMenu() {
@@ -154,9 +154,10 @@ RL.UI = (function () {
       '<button data-act="help">❓ How to Play</button><button data-act="freeplay">🏁 Free Play</button>' +
       '<button data-act="editor">✎ Track Editor</button><button data-act="community">🌐 Community Tracks</button>' +
       '<button data-act="online">🌐 Multiplayer</button><button data-act="phone">📱 Phone</button>' +
-      '<button data-act="servers">🏙️ City Servers</button>' +
+      '<button data-act="servers">🏙️ City Servers</button><button data-act="escape">🚨 Escape</button>' +
       '<button data-act="title">⏏ Save & Quit to Title</button></div>',
       acts: { inv: showInventory, skills: showSkills, quests: showQuests, ach: showAchievements, garage: () => showGarage(), settings: showSettings, help: showHelp,
+        escape: () => RL.Escape && RL.Escape.openLobby(),
         freeplay: () => RL.FreePlay && RL.FreePlay.open(),
         editor: () => { if (RL.Editor) { closeAll(); RL.Editor.open(); } },
         community: () => RL.Community && RL.Community.open(),
@@ -166,28 +167,13 @@ RL.UI = (function () {
         title: () => { G().save(); closeAll(); G().toTitle(); } } });
   }
   function showHelp() {
-    open({ title: 'How to Play', render: () => '<ul class="help">' +
-      '<li><b>City:</b> drive with <kbd>↑/W</kbd> gas, <kbd>↓/S</kbd> brake, <kbd>←→/AD</kbd> steer. <kbd>E</kbd> parks at a door or talks. <kbd>M</kbd> opens the city map. <kbd>C</kbd> or STEAL takes a stopped traffic car (free roam only). <kbd>L</kbd> siren when you are police. <kbd>F</kbd> photo, <kbd>H</kbd> dailies.</li>' +
-      '<li><b>Heat:</b> one star is a couple of real offenses, not a nudge. Clipping a sign or a slow bump adds nothing. Wrecking cars, destroying a cruiser, and a long speeder add heat. Four and five stars take a sustained spree. Heat falls when you drive clean, and a star only drops once the police lose sight of you. The green <b>bounty</b> next to the stars is what a clean escape pays. It follows your peak stars.</li>' +
-      '<li><b>Police:</b> one star is one cruiser, slower than a decent car and slow to turn. More stars bring more units, then a roadblock, spikes, and a helicopter. A hard turn or handbrake can open a gap. They box you in only at high stars, and a bust takes a while if you keep moving. Stop, wreck, hop out, or get boxed in and officers jump out on foot. At four and five stars a few armed rivals pile out too. Their swings and shots flash a yellow warning first, and you can step out of range. The HP bar follows you on foot and in the car. At zero you go down: <b>Busted</b> if the police landed it, <b>Wasted</b> otherwise. You respawn at the nearest garage or hospital and pay a capped fee. Get back in a car and drive to shake the foot chase.</li>' +
-      '<li><b>Stolen cars:</b> traffic comes in tiers. Beaters are common and slow. Sports and the rare exotic are quicker and tougher. Stealing adds heat and does not pay. The car is not added to your garage. Races and the drag strip always use the car you own. At 100% damage a stolen car still explodes. You end up back in your own car, or on foot if it is parked nearby.</li>' +
-      '<li><b>Race:</b> <kbd>↑/W</kbd> gas, <kbd>↓/S</kbd> brake/reverse, <kbd>←→/AD</kbd> steer, <kbd>Space</kbd> drift, <kbd>Shift/N</kbd> nitro, <kbd>Esc/P</kbd> pause. A blown engine respawns at the last checkpoint with a time penalty.</li>' +
-      '<li><b>Drag:</b> at the dragway, pick 1/4 or 1/2 mile. Hold gas and brake for launch control, release the brake on green. The shift light is green (good), a flash (perfect), or red (late). <kbd>Q</kbd>, <kbd>E</kbd>, or Space shifts. <kbd>N</kbd> or Shift is nitro. Stakes pay double if you win and are lost if you quit. A pink slip adds that rival\'s car once and will not take your last car or copy one you own.</li>' +
-      '<li><b>Phone:</b> <kbd>B</kbd> or the TXT button. Threads stay in the save. UNKNOWN will text at story beats and can be answered freely. The reply uses the same in-browser model as bar chat, or a scripted fallback when WebGPU is off. Chat does not pay. The strip job pays once from the quest log.</li>' +
-      '<li><b>Call car:</b> <kbd>V</kbd>, the CAR button, or Call car on the phone. Your selected garage car parks beside you. It does not copy a car into the garage. It waits a few seconds between calls, and it will not come during a 3-star chase or while you are busted.</li>' +
-      '<li>Hold drift while turning to slide. Drifting fills the nitro bar; fire nitro on straights.</li>' +
-      '<li>Tuck in behind a rival for a <b>slipstream</b> speed boost. Grass slows you, walls damage you.</li>' +
-      '<li>Finish top 3 in all three league races to unlock the <b>boss race</b>. Win it to get promoted.</li>' +
-      '<li>Story scenes play between races. Dialogue choices stick: money, respect, and who still rides with you.</li>' +
-      '<li><b>Multiplayer:</b> from the title screen, the city menu, or the Race Office, host a room and share the 4-character code. Friends join on the same code. Unlocked circuits, saved tracks, and community tracks you have open are on the list. AI fills empty spots. League progress is not affected.</li>' +
-      '<li><b>City servers:</b> public Downtown rooms from the title screen or the city menu. Other players appear with name tags and wanted stars. Police can bust a criminal for a reward. Sign in with Google to count on the all-time bounty board. Guests can ride, but they stay off that board.</li>' +
-      '<li>Level up for skill points (perks) and stat points (Reflexes, Control, Nerve, Tactics).</li>' +
-      '<li>Equip parts and tune in the Garage. Repair damage there too, because damage slows you down.</li>' +
-      '<li><b>Bar:</b> scripted talk always works. Chat freely (Settings) runs a small model in your browser. No account or API key.</li>' +
-      '<li><b>AI difficulty</b> (Settings): Easy, Normal, Hard, or Legend. It scales league races, bosses, and Free Play. Free Play also has its own field ladder.</li>' +
-      '<li><b>Free Play</b> (Race Office or Esc menu): any circuit, 1–10 laps, 0–11 AI, weather, damage, nitro, catch-up, classes, reverse, and collisions. Saved and community tracks are on that list.</li>' +
-      '<li><b>Track Editor:</b> place and drag waypoints (mouse or touch). Pinch or scroll to zoom. Save on this device, or share a short code / JSON file.</li>' +
-      '<li><b>Community Tracks:</b> publish a circuit from the editor, or browse newest, top rated, and most played. Share codes still work if the community list is offline.</li></ul>' });
+    if (RL.Help) RL.Help.show();
+  }
+  function panelTitle() {
+    if (!panel || !panel.classList.contains('open')) return '';
+    if (panel.classList.contains('dialog')) return 'dialog';
+    const h = panel.querySelector('h2');
+    return h ? h.textContent : '';
   }
 
   /* ---------------- Garage ---------------- */
@@ -595,7 +581,8 @@ RL.UI = (function () {
         '<div class="setting"><span>Screen shake</span><button data-act="shake">' + (st.shake ? 'ON' : 'OFF') + '</button></div>' +
         '<div class="setting"><span>Car explosions</span><button data-act="boom">' + (st.explosions !== false ? 'ON' : 'OFF') + '</button></div>';
       h += '<h3>Graphics</h3><div class="setting"><span>City</span><button data-act="viewmode">' + ((RL.settings.view === '3d') ? '3D' : '2D') + '</button></div>';
-      h += '<p class="small">F3, or the 3D button, switches to the other city. The career is one save either way. If WebGL is missing, the game stays in 2D and says so.</p>';
+      h += '<p class="small">F3, or the 3D button, switches to the other city. The career is one save either way. If WebGL is missing, the game stays in 2D and says so. In 3D, V cycles the camera.</p>';
+      h += '<h3>Tutorial</h3><div class="row"><button data-act="tutorial">Replay street tutorial</button></div><p class="small">The first run pays once. Replaying it does not pay again.</p>';
       h += '<h3>Free-form NPC chat</h3><div class="setting"><span>Chat freely</span><button data-act="aichat">' + (st.aiChat ? 'ON' : 'OFF') + '</button></div>';
       h += '<p class="small">' + (RL.AiNpc ? esc(RL.AiNpc.settingsHint()) : '') + '</p>';
       h += '<h3>Save</h3><p class="small">Stored under <b>' + esc(RL.SAVE_KEY) + '</b>. Updates migrate this career in place. One backup slot is kept if the main save cannot be read.</p>' +
@@ -620,6 +607,7 @@ RL.UI = (function () {
       shake: () => { st.shake = !st.shake; RL.saveSettings(); },
       boom: () => { st.explosions = st.explosions === false; RL.saveSettings(); },
       viewmode: () => { if (RL.Mode) RL.Mode.toggle(); },
+      tutorial: () => { closeAll(); if (RL.Tutorial) RL.Tutorial.startFresh(); },
       rebind: (a) => { v.waiting = a; RL.Input.rebind((code) => { if (code !== 'Escape') st.keys[a] = [code].concat(a === 'pause' ? ['Escape'] : []); v.waiting = null; RL.saveSettings(); refresh(); }); },
       resetkeys: () => { st.keys = JSON.parse(JSON.stringify(RL.DEFAULT_KEYS)); RL.saveSettings(); },
       exportfile: () => {
@@ -758,6 +746,12 @@ RL.UI = (function () {
     $('btn-multi').onclick = () => { RL.Audio.init(); RL.Net.openFromTitle(); };
     const serversBtn = $('btn-servers');
     if (serversBtn) serversBtn.onclick = () => { RL.Audio.init(); if (RL.Servers) RL.Servers.open(); };
+    const escapeBtn = $('btn-escape');
+    if (escapeBtn) escapeBtn.onclick = () => {
+      RL.Audio.init();
+      if (!G().state && !G().load()) { toast('Start a career first. Escape coins live on your save.'); return; }
+      if (RL.Escape) RL.Escape.openLobby();
+    };
     $('btn-settings').onclick = () => { RL.Audio.init(); showSettings(); };
     $('btn-help').onclick = () => { RL.Audio.init(); showHelp(); };
     const ver = $('game-version');
@@ -772,5 +766,5 @@ RL.UI = (function () {
   }
 
   return { init, setMode, toast, open, back, closeAll, isOpen, refresh, updateHud, showMenu, showGarage, showOffice, showShop, showBar, showTraining,
-    showInventory, showSkills, showQuests, showAchievements, showSettings, showHelp, showPause, showResults, showStory, queueStory, flushStories, dialogue, drawTitleBg };
+    showInventory, showSkills, showQuests, showAchievements, showSettings, showHelp, showPause, showResults, showStory, queueStory, flushStories, dialogue, drawTitleBg, panelTitle };
 })();

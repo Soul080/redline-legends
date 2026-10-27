@@ -21,11 +21,12 @@
       <button id="btn-new" class="big">New Game</button>
       <button id="btn-multi">Multiplayer</button>
       <button id="btn-servers">City Servers</button>
+      <button id="btn-escape">Escape</button>
       <button id="btn-settings">Settings</button>
       <button id="btn-view">Switch to 3D</button>
       <button id="btn-help">How to Play</button>
     </div>
-    <p class="hint">Keyboard: arrows/WASD + Enter · F3 switches 2D and 3D · Touch supported</p>
+    <p class="hint">Keyboard: arrows/WASD · F or E to enter a car · F3 switches 2D and 3D · Touch supported</p>
     <p id="view-note" class="hint" hidden></p>
   </div>
 
@@ -65,7 +66,7 @@
       <button data-touch="phone" class="t-phone hub-only">TXT</button>
       <button data-touch="summon" class="t-summon hub-only">CAR</button>
       <button data-touch="shift" class="t-shift drag-only">SHIFT</button>
-      <button data-touch="steal" class="t-steal hub-only">STEAL</button>
+      <button data-touch="enter" class="t-steal t-enter hub-only">ENTER</button>
       <button data-touch="siren" class="t-siren hub-only">SIR</button>
       <button data-touch="drift" class="t-drift race-only">DRIFT</button>
       <button data-touch="nitro" class="t-nitro race-only">NITRO</button>
@@ -88,6 +89,8 @@
   <script src="js/race.js"></script>
   <script src="js/hub.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/help.js"></script>
+  <script src="js/tutorial.js"></script>
   <script src="js/editor.js"></script>
   <script src="js/freeplay.js"></script>
   <script src="js/community-config.js"></script>
@@ -98,6 +101,7 @@
   <script src="js/traffic.js"></script>
   <script src="js/game.js"></script>
   <script src="js/drive.js"></script>
+  <script src="js/parked.js"></script>
   <script src="js/wanted.js"></script>
   <script src="js/foot.js"></script>
   <script src="js/explode.js"></script>
@@ -106,6 +110,7 @@
   <script src="js/drag.js"></script>
   <script src="js/city.js"></script>
   <script src="js/extras.js"></script>
+  <script src="js/escape-mode.js"></script>
   <!-- Free-form NPC chat (WebLLM, opt-in). Hooks live in ui.js. -->
   <script src="js/ai-npc.js"></script>
   <script src="js/summon.js"></script>

@@ -3,7 +3,7 @@
 body.mode-editor #editor-ui { display: block; }
 #editor-ui .ed-bar, #editor-ui .ed-status { pointer-events: auto; }
 #editor-ui .ed-top, #editor-ui .ed-tools, #editor-ui .ed-actions, #editor-ui .ed-status {
-  position: absolute; background: rgba(8, 6, 24, 0.9); border: 1px solid rgba(46, 230, 255, 0.5);
+  position: absolute; background: #0c0816; color: #fff; border: 1px solid #fff;
   border-radius: 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }
 #editor-ui .ed-top {
@@ -16,7 +16,7 @@ body.mode-editor #editor-ui { display: block; }
   top: 70px; right: 8px; width: 124px; display: flex; flex-direction: column; gap: 6px; padding: 8px;
 }
 #editor-ui .ed-status {
-  left: 124px; right: 140px; bottom: 8px; padding: 8px 12px; font-size: 13px; line-height: 1.35; color: #d5deea;
+  left: 124px; right: 140px; bottom: 8px; padding: 8px 12px; font-size: 13px; line-height: 1.35; color: #fff; background: #0c0816;
 }
 #editor-ui .ed-status.ok { border-color: rgba(125, 255, 90, 0.7); color: #d9ffc8; }
 #editor-ui .ed-status.bad { border-color: rgba(255, 70, 90, 0.85); color: #ffd0d4; }

@@ -46,7 +46,7 @@ RL.Wanted = (function () {
     if (type === 'heist') w.heat = Math.max(w.heat, 60);
     syncStars(w);
     if (type === 'copkill') RL.UI.toast('Cruiser destroyed', '#ff3b6b');
-    else if (type === 'steal') RL.UI.toast('Stolen car — the police noticed', '#ff8a2e');
+    else if (type === 'steal') RL.UI.toast(info.parked ? 'Someone saw the break-in' : 'Stolen car — the police noticed', '#ff8a2e');
     else if (type === 'prop' && info.destroyed) RL.UI.toast('Smashed a ' + (info.kind || 'prop'), '#ff8a2e');
     else if (type === 'traffic' && (info.destroyed || amt >= 8)) RL.UI.toast(info.destroyed ? 'Wrecked a car' : 'Hit traffic', '#ff8a2e');
     else if (type === 'redlight' || type === 'cop' || type === 'street' || type === 'heist' || type === 'smuggle') {

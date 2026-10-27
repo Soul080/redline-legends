@@ -113,7 +113,7 @@ RL.Hub = (function () {
       near = null;
       for (const b of BUILDINGS) if (Math.hypot(P.x - b.door.x, P.y - (b.door.y + 16)) < 52) near = b;
     }
-    if (!P.wrecked && RL.Input.hit('steal') && RL.Drive && RL.Drive.trySteal) RL.Drive.trySteal();
+    if (!P.wrecked && (RL.Input.hit('enter') || RL.Input.hit('steal')) && RL.Drive && RL.Drive.tryEnter) RL.Drive.tryEnter();
     if (!P.wrecked && RL.Input.hit('action')) {
       const slow = Math.abs(P.speed || 0) < 90;
       if (RL.Jobs && RL.Jobs.tryAction()) { /* delivery / bust pin */ }
@@ -121,6 +121,7 @@ RL.Hub = (function () {
         if (RL.Drive) RL.Drive.tryAction(near);
         openBuilding(near.id);
       } else if (RL.City && RL.City.tryAction()) { /* npc or landmark */ }
+      else if (RL.Drive && RL.Drive.tryEnter && RL.Drive.tryEnter()) { /* own car or a nearby one */ }
       else if (RL.Drive) RL.Drive.tryAction(null);
     }
     const lead = P.inCar === false ? 0 : 80;
@@ -196,6 +197,7 @@ RL.Hub = (function () {
     for (const p of peds) { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, 7); ctx.fill(); ctx.fillStyle = '#f2c9a0'; ctx.beginPath(); ctx.arc(p.x, p.y - 9, 5, 0, 7); ctx.fill(); }
     const drewCar = RL.Drive && RL.Drive.drawPlayerCar(ctx);
     if (!drewCar && P.inCar === false) drawWalker(ctx);
+    if (!photo && RL.Drive && RL.Drive.drawCue) RL.Drive.drawCue(ctx);
     if (near && !photo) {
       ctx.font = 'bold 15px sans-serif'; const txt = 'E / Enter: ' + near.name;
       const w = ctx.measureText(txt).width + 20;

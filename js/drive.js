@@ -5,6 +5,8 @@ RL.Drive = (function () {
   const KMH = 0.72;
   let traffic = [], stalls = [], props = [], t = 0, sparks = [], hitCd = 0;
   const P = () => RL.Hub.player;
+  const CAR_LEN = 34;
+  const ENTER_R = CAR_LEN * 1.5;
   const PROP_KINDS = [
     { id: 'hydrant', hp: 34, color: '#e23b3b' },
     { id: 'sign', hp: 22, color: '#ffe03b' },
@@ -115,12 +117,17 @@ RL.Drive = (function () {
       const ahead = lightAt(pos.x + Math.cos(pos.h) * 36, pos.y + Math.sin(pos.h) * 36, t);
       if (ahead && crossingRed(pos.h, ahead.phase)) cap = 0;
       if (siren && Math.hypot(pos.x - p.x, pos.y - p.y) < 240) cap = Math.min(cap, 30);
+      if (p && p.inCar === false) {
+        const walk = Math.hypot(pos.x - p.x, pos.y - p.y);
+        if (walk < 96) cap = Math.min(cap, walk <= ENTER_R ? 0 : ((walk - ENTER_R) / (96 - ENTER_R)) * 36);
+      }
       const len = Math.hypot(lane.x2 - lane.x1, lane.y2 - lane.y1) || 1;
       for (let j = 0; j < traffic.length; j++) if (j !== i && traffic[j].lane === c.lane) {
         let gap = traffic[j].along - c.along; if (gap < -0.5) gap += 1; if (gap > 0.5) gap -= 1;
         if (gap > 0 && gap * len < 56) cap = Math.min(cap, traffic[j].speed * 0.9);
       }
-      c.speed += ((cap - c.speed) * 1.8) * dt;
+      const brake = p && p.inCar === false && Math.hypot(pos.x - p.x, pos.y - p.y) < 96 ? 7 : 1.8;
+      c.speed += ((cap - c.speed) * brake) * dt;
       if (c.speed < 0) c.speed = 0;
       c.along += (c.speed * dt) / len;
       if (c.along > 1) c.along -= 1;
@@ -175,6 +182,7 @@ RL.Drive = (function () {
     makeStalls();
     if (!traffic.length) spawnTraffic();
     if (!props.length) spawnProps();
+    if (RL.Parked) RL.Parked.ensure();
     const s = RL.Game.state;
     if (s && s.hub) {
       if (s.hub.h != null) p.h = s.hub.h;
@@ -206,6 +214,7 @@ RL.Drive = (function () {
       if (!blocked(p.x, ny, 12)) p.y = ny;
     }
     p.speed = 0;
+    if (RL.Parked) RL.Parked.blockFoot(p);
   }
 
   function driveUpdate(dt, p) {
@@ -267,6 +276,7 @@ RL.Drive = (function () {
         if (p.x === ox && p.y === oy) p.speed *= 0.5;
       }
     }
+    if (RL.Parked) RL.Parked.hitBy(p);
     if (lim > 0 && RL.Wanted) RL.Wanted.reportSpeed(kmh(p.speed), lim, dt);
     lightsCheck(p);
   }
@@ -316,6 +326,7 @@ RL.Drive = (function () {
       else driveUpdate(dt, p);
     }
     updateTraffic(dt);
+    if (RL.Parked) RL.Parked.update(dt);
     p._lx = p.x; p._ly = p.y;
     const s = RL.Game.state;
     if (s && s.hub) { s.hub.x = p.x; s.hub.y = p.y; s.hub.h = p.h || 0; s.hub.speed = p.speed || 0; s.hub.inCar = p.inCar !== false; s.hub.parked = p.parked || null; s.hub.hp = p.hp == null ? 100 : RL.clamp(p.hp, 0, 100); }
@@ -351,13 +362,13 @@ RL.Drive = (function () {
       p.inCar = false; p.speed = 0;
       return false; // caller still opens the building (one press)
     }
-    if (p.inCar === false && p.ownPark && p.joyride && Math.hypot(p.x - p.ownPark.x, p.y - p.ownPark.y) < 46 && !nearBuilding) {
+    if (p.inCar === false && p.ownPark && p.joyride && Math.hypot(p.x - p.ownPark.x, p.y - p.ownPark.y) < ENTER_R && !nearBuilding) {
       p.x = p.ownPark.x; p.y = p.ownPark.y; p.h = p.ownPark.h; p.inCar = true; p.speed = 0;
       dropJoyride();
       try { RL.Audio.play('confirm'); } catch (e) { }
       return true;
     }
-    if (p.inCar === false && p.parked && Math.hypot(p.x - p.parked.x, p.y - p.parked.y) < 46 && !nearBuilding) {
+    if (p.inCar === false && p.parked && Math.hypot(p.x - p.parked.x, p.y - p.parked.y) < ENTER_R && !nearBuilding) {
       p.x = p.parked.x; p.y = p.parked.y; p.h = p.parked.h; p.inCar = true; p.speed = 0;
       try { RL.Audio.play('confirm'); } catch (e) { }
       return true;
@@ -381,33 +392,110 @@ RL.Drive = (function () {
       const d = Math.hypot(p.x - c.x, p.y - c.y);
       if (d < bestD) { best = c; bestD = d; }
     }
-    return best;
+    return best ? { car: best, d: bestD, parked: false } : null;
   }
-  function trySteal() {
-    const p = P();
-    if (!p || p.inCar === false || p.wrecked) return false;
-    if (Math.abs(p.speed || 0) > 48) return false;
-    if (nearDoor(p.x, p.y)) return false;
-    const c = nearestTraffic(p, 46);
-    if (!c) return false;
+  function nearestTake(p) {
+    const lane = nearestTraffic(p, ENTER_R);
+    const parked = RL.Parked && RL.Parked.nearest(p.x, p.y, ENTER_R);
+    if (parked && (!lane || parked.d < lane.d)) return { car: parked.car, d: parked.d, parked: true };
+    return lane;
+  }
+  function nearestOwn(p) {
+    if (p.inCar !== false) return null;
+    const spot = (p.joyride && p.ownPark) ? p.ownPark : p.parked;
+    if (!spot) return null;
+    const d = Math.hypot(p.x - spot.x, p.y - spot.y);
+    if (d > ENTER_R) return null;
+    return { x: spot.x, y: spot.y, h: spot.h || 0, d: d };
+  }
+  function guardGarage(s, beforeCars, beforeMoney, beforeId) {
+    if (s && (s.cars.length !== beforeCars || s.currentCar !== beforeId || s.money !== beforeMoney)) {
+      s.money = beforeMoney;
+      s.currentCar = beforeId;
+    }
+  }
+  function takeTraffic(p, c) {
     const tier = (RL.Traffic && RL.Traffic.tier(c.tier)) || { id: c.tier || 'commuter', name: c.tierName || 'Commuter', color: c.color, cls: 'Coupe', hp: c.hp || 82, heat: 12 };
     const s = RL.Game.state;
     const beforeCars = s && s.cars ? s.cars.length : 0;
     const beforeMoney = s ? s.money : 0;
     const beforeId = s ? s.currentCar : null;
-    if (!p.joyride) p.ownPark = { x: p.x, y: p.y, h: p.h || 0 };
+    if (p.inCar === false && !p.joyride && p.parked) p.ownPark = { x: p.parked.x, y: p.parked.y, h: p.parked.h || 0 };
+    else if (!p.joyride) p.ownPark = { x: p.x, y: p.y, h: p.h || 0 };
+    if (p.inCar === false) { p.x = c.x; p.y = c.y; p.h = c.h || 0; }
+    p.inCar = true; p.speed = 0;
     p.joyride = { tier: tier.id, name: tier.name, color: c.color || tier.color, cls: tier.cls, damage: 0 };
     const idx = traffic.indexOf(c);
     if (idx >= 0) traffic.splice(idx, 1);
     saveJoyride();
     if (RL.Wanted) RL.Wanted.report('steal', { amount: tier.heat || 12 });
-    if (s && (s.cars.length !== beforeCars || s.currentCar !== beforeId || s.money !== beforeMoney)) {
-      s.money = beforeMoney;
-      s.currentCar = beforeId;
-    }
+    guardGarage(s, beforeCars, beforeMoney, beforeId);
     try { RL.Audio.play('confirm'); } catch (e) { }
     return true;
   }
+  function takeParked(p, c) {
+    const tier = (RL.Traffic && RL.Traffic.tier(c.tier)) || { id: c.tier || 'commuter', name: c.name || 'Commuter', color: c.color, cls: 'Coupe', hp: c.hp || 82, heat: 12 };
+    const s = RL.Game.state;
+    const beforeCars = s && s.cars ? s.cars.length : 0;
+    const beforeMoney = s ? s.money : 0;
+    const beforeId = s ? s.currentCar : null;
+    const witnessed = RL.Parked && RL.Parked.seen(c);
+    if (p.inCar === false && !p.joyride && p.parked) p.ownPark = { x: p.parked.x, y: p.parked.y, h: p.parked.h || 0 };
+    else if (!p.joyride) p.ownPark = { x: p.x, y: p.y, h: p.h || 0 };
+    if (p.inCar === false) { p.x = c.x; p.y = c.y; p.h = c.h || 0; }
+    p.inCar = true; p.speed = 0;
+    p.joyride = { tier: tier.id, name: tier.name, color: c.color || tier.color, cls: tier.cls || 'Coupe', damage: 0 };
+    if (RL.Parked) RL.Parked.remove(c);
+    saveJoyride();
+    if (witnessed && RL.Wanted && RL.Parked) RL.Wanted.report('steal', { amount: RL.Parked.breakHeat(tier), parked: true });
+    guardGarage(s, beforeCars, beforeMoney, beforeId);
+    try { RL.Audio.play('confirm'); } catch (e) { }
+    return true;
+  }
+  function mountOwn(p) {
+    const spot = (p.joyride && p.ownPark) ? p.ownPark : p.parked;
+    if (!spot) return false;
+    p.x = spot.x; p.y = spot.y; p.h = spot.h || 0; p.inCar = true; p.speed = 0;
+    if (p.joyride) dropJoyride();
+    try { RL.Audio.play('confirm'); } catch (e) { }
+    return true;
+  }
+  function enterTarget() {
+    const p = P();
+    if (!p || p.wrecked) return null;
+    if (RL.UI && RL.UI.isOpen && RL.UI.isOpen()) return null;
+    if (RL.Photo && RL.Photo.active) return null;
+    if (RL.City && RL.City.mapOpen && RL.City.mapOpen()) return null;
+    if (p.inCar !== false) {
+      if (Math.abs(p.speed || 0) > 48) return null;
+      if (nearDoor(p.x, p.y)) return null;
+      const take = nearestTake(p);
+      if (!take) return null;
+      return { kind: 'steal', x: take.car.x, y: take.car.y, h: take.car.h || 0 };
+    }
+    const own = nearestOwn(p);
+    const take = nearestTake(p);
+    if (own && (!take || own.d <= take.d)) return { kind: 'own', x: own.x, y: own.y, h: own.h || 0 };
+    if (!take) return null;
+    return { kind: 'steal', x: take.car.x, y: take.car.y, h: take.car.h || 0 };
+  }
+  function tryEnter() {
+    const p = P();
+    if (!p || p.wrecked) return false;
+    if (p.inCar !== false) {
+      if (Math.abs(p.speed || 0) > 48) return false;
+      if (nearDoor(p.x, p.y)) return false;
+      const take = nearestTake(p);
+      if (!take) return false;
+      return take.parked ? takeParked(p, take.car) : takeTraffic(p, take.car);
+    }
+    const own = nearestOwn(p);
+    const take = nearestTake(p);
+    if (own && (!take || own.d <= take.d)) return mountOwn(p);
+    if (!take) return false;
+    return take.parked ? takeParked(p, take.car) : takeTraffic(p, take.car);
+  }
+  function trySteal() { return tryEnter(); }
   function dropJoyride(opts) {
     const p = P();
     opts = opts || {};
@@ -421,18 +509,34 @@ RL.Drive = (function () {
   }
   function prompt() {
     const p = P(); if (!p) return null;
-    if (p.inCar === false && p.ownPark && p.joyride && Math.hypot(p.x - p.ownPark.x, p.y - p.ownPark.y) < 56) return { text: 'E: back to your car', color: '#7dff5a' };
-    if (p.inCar === false && p.parked && Math.hypot(p.x - p.parked.x, p.y - p.parked.y) < 56) return { text: 'E: get in car', color: '#ffe03b' };
     if (p.inCar !== false && Math.abs(p.speed) < 90) {
       const stall = stalls.find((s) => inStall(s, p.x, p.y));
       if (stall) return { text: 'E: park & enter ' + stall.name, color: stall.color || '#2ee6ff' };
-      const near = !nearDoor(p.x, p.y) && nearestTraffic(p, 46);
-      if (near && Math.abs(p.speed) < 48) {
-        const name = near.tierName || 'car';
-        return { text: 'C / STEAL: take the ' + name, color: near.color || '#ff3b6b' };
-      }
     }
     return null;
+  }
+  function drawCue(ctx) {
+    const cue = enterTarget();
+    if (!cue) return;
+    ctx.save();
+    ctx.translate(cue.x, cue.y);
+    ctx.rotate(cue.h || 0);
+    ctx.strokeStyle = cue.kind === 'own' ? '#7dff5a' : '#ffe03b';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-20, -12, 42, 24);
+    ctx.restore();
+    const label = cue.kind === 'own' ? '[F] Enter' : '[F] Steal';
+    ctx.font = 'bold 16px Trebuchet MS, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(label).width + 18;
+    ctx.fillStyle = '#0c0816';
+    ctx.fillRect(cue.x - w / 2, cue.y - 44, w, 24);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cue.x - w / 2, cue.y - 44, w, 24);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(label, cue.x, cue.y - 32);
   }
 
   function drawCar(g, c, opts) {
@@ -467,6 +571,7 @@ RL.Drive = (function () {
     const p = P(); if (!p) return;
     const night = RL.City && RL.City.dark() > 0.25;
     traffic.forEach((c) => { if (!c.wrecked) drawCar(ctx, c, { night: false }); });
+    if (RL.Parked) RL.Parked.draw(ctx);
     props.forEach((prop) => { if (prop.alive) drawProp(ctx, prop); });
     if (p.joyride && p.ownPark && (p.inCar === false || Math.hypot(p.x - p.ownPark.x, p.y - p.ownPark.y) > 30)) {
       drawCar(ctx, { x: p.ownPark.x, y: p.ownPark.y, h: p.ownPark.h, color: RL.Game.carColor(RL.Game.currentCar()) }, { night: night });
@@ -505,7 +610,8 @@ RL.Drive = (function () {
   }
 
   return {
-    enter, update, draw, drawPlayerCar, drawCar, tryAction, trySteal, dropJoyride, applyDamage, prompt, nearDoor, kmh, limitAt, lightAt, crossingRed, headingAxis,
+    enter, update, draw, drawPlayerCar, drawCar, drawCue, tryAction, trySteal, tryEnter, enterTarget, dropJoyride, applyDamage, prompt, nearDoor, kmh, limitAt, lightAt, crossingRed, headingAxis,
+    ENTER_R,
     stalls: () => stalls, traffic: () => traffic, props: () => props, get time() { return t; }, makeStalls, inStall
   };
 })();

@@ -432,7 +432,7 @@
         style: { color: null, rims: 0, decal: "none", underglow: false }
       };
       this.state = {
-        version: 9,
+        version: 10,
         name: name || "Rookie",
         money: 600,
         xp: 0,
@@ -478,6 +478,7 @@
         phone: { threads: {}, seen: {}, memory: {}, open: "unknown" },
         dragPrefs: { half: false, stake: true, pink: false },
         dragStake: null,
+        escape: { coins: 0, owned: ["alley"], selected: "alley", best: {}, daily: { date: "", paid: 0 } },
         hub: { x: 15.5 * 40, y: 9.5 * 40, h: 0, speed: 0, inCar: true, joyride: null, hp: 100, summonCd: 0 },
         hub3d: null,
         joyride: null
@@ -623,7 +624,16 @@
         if (s.dragPrefs.pink == null) s.dragPrefs.pink = false;
       }
       if (!("dragStake" in s)) s.dragStake = null;
-      if (!Number.isFinite(Number(s.version)) || Number(s.version) < 9) s.version = 9;
+      if (!s.escape || typeof s.escape !== "object" || Array.isArray(s.escape)) s.escape = { coins: 0, owned: ["alley"], selected: "alley", best: {}, daily: { date: "", paid: 0 } };
+      else {
+        if (!Array.isArray(s.escape.owned)) s.escape.owned = ["alley"];
+        if (s.escape.owned.indexOf("alley") < 0) s.escape.owned.unshift("alley");
+        if (typeof s.escape.selected !== "string") s.escape.selected = "alley";
+        if (!s.escape.best || typeof s.escape.best !== "object" || Array.isArray(s.escape.best)) s.escape.best = {};
+        if (!s.escape.daily || typeof s.escape.daily !== "object" || Array.isArray(s.escape.daily)) s.escape.daily = { date: "", paid: 0 };
+        if (!Number.isFinite(Number(s.escape.coins))) s.escape.coins = 0;
+      }
+      if (!Number.isFinite(Number(s.version)) || Number(s.version) < 10) s.version = 10;
       if (!s.claimed || typeof s.claimed !== "object" || Array.isArray(s.claimed)) s.claimed = {};
       if (!s.talked || typeof s.talked !== "object" || Array.isArray(s.talked)) s.talked = {};
       if (!Array.isArray(s.storyQueue)) s.storyQueue = [];

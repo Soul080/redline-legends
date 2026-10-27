@@ -10,7 +10,7 @@
 RL.DESKTOP_ORIGIN = 'app://redline';
 RL.SAVE_KEY = 'redline_legends_save_v1';
 RL.SAVE_BACKUP_KEY = 'redline_legends_save_v1_backup';
-RL.SAVE_VERSION = 9;
+RL.SAVE_VERSION = 10;
 /* Release label. The string lives in version.js (RL_VERSION), not here. */
 RL.VERSION = (typeof RL_VERSION === 'string' && RL_VERSION) ? RL_VERSION : '';
 RL.SETTINGS_KEY = 'redline_legends_settings_v1';
@@ -60,6 +60,7 @@ RL.Game = {
       phone: { threads: {}, seen: {}, memory: {}, open: 'unknown' },
       dragPrefs: { half: false, stake: true, pink: false }, dragStake: null,
       customTracks: [], multiplayer: { name: '', room: '', status: 'offline' }, difficulty: 'normal',
+      escape: { coins: 0, owned: ['alley'], selected: 'alley', best: {}, daily: { date: '', paid: 0 } },
       achievements: {}, records: {}, totals: {
         races: 0, wins: 0, crashes: 0, nitro: 0, draft: 0, training: 0,
         drags: 0, dragWins: 0, evasions: 0, busts: 0, heists: 0, smuggles: 0, photos: 0, tags: 0,
@@ -165,6 +166,7 @@ RL.Game = {
        v7 difficulty
        v8 free-roam joyride (never a garage car)
        v9 phone threads, summon cooldown, drag stakes
+       v10 Escape wallet (coins, cars, per-map best, daily bonus)
      Quest ids and story keys this build does not know are kept, so a newer
      career is not stripped when an older page reads it. */
   _migrateSteps: {
@@ -250,6 +252,13 @@ RL.Game = {
       if (s.hub && typeof s.hub === 'object' && !Array.isArray(s.hub)) {
         if (!(Number(s.hub.summonCd) >= 0)) s.hub.summonCd = 0;
         else s.hub.summonCd = RL.clamp(Number(s.hub.summonCd), 0, 60);
+      }
+    },
+    /* Escape wallet. Missing objects are filled. Coins, owned ids, bests, and extra keys stay. */
+    9(s) {
+      if (RL.Escape && RL.Escape.ensureSave) RL.Escape.ensureSave(s);
+      else if (!s.escape || typeof s.escape !== 'object' || Array.isArray(s.escape)) {
+        s.escape = { coins: 0, owned: ['alley'], selected: 'alley', best: {}, daily: { date: '', paid: 0 } };
       }
     }
   },
