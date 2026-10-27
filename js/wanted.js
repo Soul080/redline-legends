@@ -1,0 +1,403 @@
+/* wanted.js - 1 to 5 star heat. Cops scale with the star, but low stars are
+   few, slow, and easy to juke. Crashes and wrecks add heat. Minor bumps do
+   not. Heat fades when the driving is clean. A bust impounds the car for a
+   fee. A clean escape pays bountyFor(peak stars, role). */
+RL.Wanted = (function () {
+  let cops = [], blocks = [], spikes = [], heli = null, search = 0, hiddenFor = 0, peak = 0, seen = false, pop = 0, coolToast = 0, cleanFor = 0;
+  const VIS = [0, 280, 340, 420, 500, 600];
+
+  function S() { return RL.Game.state; }
+  function W() {
+    const s = S(); if (!s) return null;
+    if (!s.wanted) s.wanted = { stars: 0, heat: 0, peak: 0 };
+    return s.wanted;
+  }
+  function stars() { const w = W(); return w ? w.stars : 0; }
+  function tireCut() { return pop; }
+  function syncStars(w) {
+    const n = RL.Heat.starsOf(w.heat);
+    if (n > w.stars) {
+      w.stars = n; w.peak = Math.max(w.peak || 0, n); peak = Math.max(peak, n);
+      try { RL.Audio.play(n >= 4 ? 'error' : 'beep'); } catch (e) { }
+      RL.UI.toast(n + ' STAR' + (n > 1 ? 'S' : '') + ' — police are on you', n >= 4 ? '#ff3b6b' : '#ffe03b');
+      if (RL.Game.unlockAch) { if (n >= 1) RL.Game.unlockAch('sp_star1'); if (n >= 5) RL.Game.unlockAch('sp_star5'); }
+      if (RL.Daily) RL.Daily.progress('stars', 0);
+    } else w.stars = n;
+  }
+  function report(type, info) {
+    const w = W(); if (!w) return;
+    info = info || {};
+    const role = RL.Roles ? RL.Roles.current() : 'neutral';
+    if (role === 'police') {
+      if (type === 'traffic' && !info.suspect) RL.Roles.infraction('traffic');
+      else if (type === 'redlight') RL.Roles.infraction('redlight');
+      else if (type === 'street' || type === 'heist' || type === 'smuggle') RL.Roles.infraction(type);
+      return;
+    }
+    const major = type !== 'speeding' || info.major;
+    if (role === 'neutral' && !major) return;
+    let amt = RL.Heat.amount(type, info);
+    if (role === 'criminal') amt *= 1.5;
+    if (RL.Roles && RL.Roles.hasPerk('plates')) amt *= 0.72;
+    if (amt < 0.5) return;
+    cleanFor = 0;
+    w.heat = RL.clamp(w.heat + amt, 0, RL.Heat.MAX);
+    if (type === 'street') w.heat = Math.max(w.heat, 48);
+    if (type === 'heist') w.heat = Math.max(w.heat, 60);
+    syncStars(w);
+    if (type === 'copkill') RL.UI.toast('Cruiser destroyed', '#ff3b6b');
+    else if (type === 'steal') RL.UI.toast('Stolen car — the police noticed', '#ff8a2e');
+    else if (type === 'prop' && info.destroyed) RL.UI.toast('Smashed a ' + (info.kind || 'prop'), '#ff8a2e');
+    else if (type === 'traffic' && (info.destroyed || amt >= 8)) RL.UI.toast(info.destroyed ? 'Wrecked a car' : 'Hit traffic', '#ff8a2e');
+    else if (type === 'redlight' || type === 'cop' || type === 'street' || type === 'heist' || type === 'smuggle') {
+      RL.UI.toast(({ redlight: 'Ran a red light', cop: 'Hit a cop', street: 'Illegal street race', heist: 'Alarm tripped', smuggle: 'Hot cargo' })[type] || 'Heat', '#ff8a2e');
+    }
+    if (type === 'redlight' && RL.Game.unlockAch) RL.Game.unlockAch('sp_red');
+  }
+  let speedAcc = 0;
+  function reportSpeed(kmh, limit, dt) {
+    if (!limit || kmh < limit + 18) { speedAcc = Math.max(0, speedAcc - dt); return; }
+    speedAcc += dt;
+    const major = kmh > limit * 1.55;
+    const need = major ? 2.2 : 3.6;
+    if (speedAcc >= need) { speedAcc = 0; report('speeding', { major: major }); }
+  }
+
+  function los(ax, ay, bx, by) {
+    const dist = Math.hypot(bx - ax, by - ay);
+    const steps = Math.max(2, Math.floor(dist / 22));
+    for (let i = 1; i < steps; i++) {
+      const x = ax + (bx - ax) * (i / steps), y = ay + (by - ay) * (i / steps);
+      if (RL.Hub.blocked(x, y, 4)) return false;
+    }
+    return true;
+  }
+  function roadNear(x, y, h, back) {
+    const m = RL.CityMap; if (!m) return { x, y };
+    const dir = back ? Math.PI : 0;
+    for (let d = 80; d <= 520; d += 40) {
+      const px = x - Math.cos(h + dir) * d, py = y - Math.sin(h + dir) * d;
+      if (RL.Drive.limitAt(px, py) && !RL.Hub.blocked(px, py, 16)) return { x: px, y: py };
+    }
+    return { x, y };
+  }
+  function aimPoint(i, p, n, canSee, cop) {
+    if (!canSee) return { x: cop.lastX, y: cop.lastY, vx: 0, vy: 0 };
+    const lead = (RL.Pursuit.profile(n).predict || 0.2) * Math.abs(p.speed || 0);
+    let ax = p.x + Math.cos(p.h || 0) * lead;
+    let ay = p.y + Math.sin(p.h || 0) * lead;
+    if (n >= 4 && i % 3 === 1) {
+      ax = p.x + Math.cos(p.h || 0) * (110 + n * 16);
+      ay = p.y + Math.sin(p.h || 0) * (110 + n * 16);
+    } else if (n >= 4 && i % 3 === 2) {
+      const nx = -Math.sin(p.h || 0), ny = Math.cos(p.h || 0);
+      ax = p.x + nx * 42 + Math.cos(p.h || 0) * 50;
+      ay = p.y + ny * 42 + Math.sin(p.h || 0) * 50;
+    }
+    return { x: ax, y: ay, vx: 0, vy: 0 };
+  }
+  function ensureCops(p) {
+    const n = stars();
+    const need = RL.Pursuit.countFor(n);
+    while (cops.length < need) {
+      const spot = roadNear(p.x, p.y, p.h || 0, true);
+      const side = (cops.length % 2 === 0 ? 1 : -1) * (18 + cops.length * 10);
+      const nx = -Math.sin(p.h || 0), ny = Math.cos(p.h || 0);
+      cops.push({
+        x: spot.x + nx * side, y: spot.y + ny * side, h: p.h || 0, speed: 40,
+        vx: Math.cos(p.h || 0) * 40, vy: Math.sin(p.h || 0) * 40,
+        color: '#f4f7ff', seen: false, stuck: 0, lastX: p.x, lastY: p.y
+      });
+    }
+    while (cops.length > need) cops.pop();
+    if (n >= 4) {
+      if (!blocks.length || passed(p, blocks[0])) placeBlock(p);
+    } else blocks = [];
+    if (n >= 5) {
+      if (!spikes.length || passed(p, spikes[0])) placeSpikes(p);
+      if (!heli) heli = { x: p.x, y: p.y - 80 };
+    } else { spikes = []; heli = null; }
+  }
+  function passed(p, obj) {
+    if (!obj) return true;
+    const dx = obj.x - p.x, dy = obj.y - p.y;
+    const forward = dx * Math.cos(p.h || 0) + dy * Math.sin(p.h || 0);
+    return forward < -80;
+  }
+  function placeBlock(p) {
+    const h = p.h || 0;
+    const spot = roadNear(p.x + Math.cos(h) * 460, p.y + Math.sin(h) * 460, h, false);
+    const nx = -Math.sin(h), ny = Math.cos(h);
+    blocks = [
+      { x: spot.x + nx * 18, y: spot.y + ny * 18, h: h + Math.PI / 2 },
+      { x: spot.x - nx * 18, y: spot.y - ny * 18, h: h + Math.PI / 2 }
+    ];
+  }
+  function placeSpikes(p) {
+    const h = p.h || 0;
+    const spot = roadNear(p.x + Math.cos(h) * 320, p.y + Math.sin(h) * 320, h, false);
+    spikes = [{ x: spot.x, y: spot.y, h: h + Math.PI / 2, w: 70 }];
+  }
+  function hurtPlayer(p, dmg) {
+    if (RL.Drive && RL.Drive.applyDamage) RL.Drive.applyDamage(p, dmg);
+    else {
+      const car = RL.Game.currentCar();
+      if (car && !(p.invuln > 0)) {
+        car.damage = RL.clamp((car.damage || 0) + dmg, 0, 100);
+        if (car.damage >= 100 && RL.Explode) RL.Explode.cityCar(p);
+      }
+    }
+  }
+
+  function update(dt, p) {
+    const w = W(); if (!w || !p) return;
+    if (pop > 0) pop -= dt;
+    const n = w.stars;
+    if (n <= 0) {
+      cops = []; blocks = []; spikes = []; heli = null; search = 0; hiddenFor = 0; seen = false;
+      if (peak > 0 && w.heat <= 0) peak = 0;
+    } else ensureCops(p);
+    const role = RL.Roles ? RL.Roles.current() : 'neutral';
+    if (role === 'police') { clearHeat('badge'); return; }
+    let visible = false;
+    const vis = (VIS[n] || 0) * ((RL.City && RL.City.dark() > 0.45) ? 0.8 : 1);
+    if (n > 0) cops.forEach((c, i) => {
+      if (c.hitCd > 0) c.hitCd -= dt;
+      if (c.onFoot && !c.wrecked) {
+        c.speed = 0; c.vx = 0; c.vy = 0;
+        const canSee = Math.hypot(c.x - p.x, c.y - p.y) < vis && los(c.x, c.y, p.x, p.y);
+        c.seen = canSee;
+        if (canSee) { visible = true; c.lastX = p.x; c.lastY = p.y; search = 3.2; }
+        return;
+      }
+      if (c.wrecked) {
+        c.wreckT -= dt; c.speed = 0; c.vx = 0; c.vy = 0;
+        if (c.wreckT <= 0) {
+          c.wrecked = false; c.dmg = 0;
+          const back = roadNear(p.x, p.y, p.h || 0, true);
+          c.x = back.x; c.y = back.y; c.speed = 70; c.vx = Math.cos(p.h || 0) * 70; c.vy = Math.sin(p.h || 0) * 70;
+          c.aimX = null; c.aimY = null;
+        }
+        return;
+      }
+      const canSee = Math.hypot(c.x - p.x, c.y - p.y) < vis && los(c.x, c.y, p.x, p.y);
+      c.seen = canSee;
+      if (canSee) { visible = true; c.lastX = p.x; c.lastY = p.y; search = 3.2; }
+      const aim = aimPoint(i, p, n, canSee, c);
+      const ox = c.x, oy = c.y;
+      RL.Pursuit.stepCop(c, aim, dt, n);
+      if (RL.Hub.blocked(c.x, oy, 14)) { c.x = ox; c.vx *= -0.15; c.speed *= 0.65; }
+      if (RL.Hub.blocked(c.x, c.y, 14)) { c.y = oy; c.vy *= -0.15; c.speed *= 0.65; }
+      if (c.speed < 28) c.stuck += dt; else c.stuck = 0;
+      if (c.stuck > 2.6) {
+        const s = roadNear(p.x, p.y, p.h || 0, true);
+        c.x = s.x; c.y = s.y; c.stuck = 0; c.speed = 60;
+        c.vx = Math.cos(p.h || 0) * 60; c.vy = Math.sin(p.h || 0) * 60;
+        c.aimX = null; c.aimY = null;
+      }
+      const d = Math.hypot(c.x - p.x, c.y - p.y);
+      if (d < 26 && d > 0.1 && p.inCar !== false && !p.wrecked) {
+        const push = (26 - d) / d;
+        if (!RL.Hub.blocked(p.x + (p.x - c.x) * push, p.y, 15)) p.x += (p.x - c.x) * push * 0.22;
+        if (!RL.Hub.blocked(p.x, p.y + (p.y - c.y) * push, 15)) p.y += (p.y - c.y) * push * 0.22;
+        p.speed *= 0.978;
+        if (Math.abs(p.speed) > 70 && !(c.hitCd > 0)) {
+          c.hitCd = 1.05;
+          report('cop', { speed: Math.abs(p.speed) });
+          if (!(p.invuln > 0)) hurtPlayer(p, RL.Pursuit.ramDamage(n));
+          c.dmg = (c.dmg || 0) + 14 + Math.abs(p.speed) * 0.04;
+          if (c.dmg >= 100 && !c.wrecked && RL.Explode && RL.Explode.enabled()) {
+            c.wrecked = true; c.wreckT = RL.Explode.DELAY || 2.7; c.dmg = 100; c.speed = 0; c.vx = 0; c.vy = 0;
+            RL.Explode.boom(c.x, c.y, {});
+            report('copkill', {});
+          }
+          try { RL.Audio.play('crash', 0.25); } catch (e) { }
+        }
+      }
+    });
+    if (RL.Roles && RL.Roles.peers) RL.Roles.peers().forEach((peer) => {
+      if (peer.role === 'police' && Math.hypot(peer.x - p.x, peer.y - p.y) < vis && los(peer.x, peer.y, p.x, p.y)) visible = true;
+    });
+    if (heli && n >= 5) {
+      heli.x += (p.x - heli.x) * Math.min(1, dt * 0.55);
+      heli.y += (p.y - 30 - heli.y) * Math.min(1, dt * 0.55);
+      if (Math.hypot(heli.x - p.x, heli.y - p.y) < 130) { visible = true; }
+    }
+    if (p._blockCd > 0) p._blockCd -= dt;
+    blocks.forEach((b) => {
+      if (Math.hypot(b.x - p.x, b.y - p.y) < 26 && p.inCar !== false && !(p._blockCd > 0)) {
+        p._blockCd = 0.85; p.speed *= 0.62;
+        report('cop', { speed: Math.abs(p.speed) });
+        if (!p.wrecked && !(p.invuln > 0)) hurtPlayer(p, 2);
+      }
+    });
+    spikes.forEach((s) => {
+      if (Math.hypot(s.x - p.x, s.y - p.y) < 28 && pop <= 0 && p.inCar !== false && Math.abs(p.speed) > 40) {
+        pop = 6; p.speed *= 0.28;
+        RL.UI.toast('Spike strip — tires are shredded', '#ff3b6b');
+        try { RL.Audio.play('crash', 0.4); } catch (e) { }
+      }
+    });
+    if (visible) { seen = true; hiddenFor = 0; search = Math.max(search, 2.2); }
+    else {
+      search -= dt;
+      if (search <= 0) hiddenFor += dt;
+    }
+    const lim = p.onRoad && RL.Drive ? RL.Drive.limitAt(p.x, p.y) : 0;
+    const legal = !lim || (RL.Drive && RL.Drive.kmh(p.speed) <= lim + 8);
+    if (legal) cleanFor += dt;
+    else cleanFor = 0;
+    const cooled = RL.Heat.decay(w.heat, w.stars, dt, visible && n > 0, cleanFor);
+    if (cooled !== w.heat) {
+      w.heat = cooled;
+      syncStars(w);
+      if (!visible && search <= 0 && hiddenFor > 2.4 && w.stars <= 0 && (peak > 0 || (w.peak || 0) > 0)) evade();
+      else if (w.stars > 0 && !visible && cleanFor > 3.5) {
+        coolToast -= dt;
+        if (coolToast <= 0) { coolToast = 2.4; RL.UI.toast('Heat cooling — stay clean and out of sight', '#7dff5a'); }
+      }
+    }
+    if (!p._skipFoot && RL.Foot) RL.Foot.update(dt, p, cops, w.stars);
+    if (!p._skipFoot && RL.Foot && RL.Foot.active()) p._pin = 0;
+    else if (w.stars > 0 && p.inCar !== false && !p.wrecked) {
+      const close = cops.filter((c) => !c.wrecked && Math.hypot(c.x - p.x, c.y - p.y) < 30).length;
+      const near = cops.some((c) => Math.hypot(c.x - p.x, c.y - p.y) < 110);
+      const slow = Math.abs(p.speed) < 16 + n * 2;
+      const boxed = n >= 4 && close >= 2 && Math.abs(p.speed) < 34;
+      const spiked = pop > 4.2 && near && Math.abs(p.speed) < 36;
+      if ((close >= 1 && slow) || boxed || spiked) {
+        p._pin = (p._pin || 0) + dt;
+        if (p._pin > RL.Pursuit.bustSeconds(n)) bust();
+      } else p._pin = Math.max(0, (p._pin || 0) - dt * 0.55);
+    }
+  }
+  function liveBounty() {
+    const w = W();
+    if (!w || w.stars <= 0) return 0;
+    const role = RL.Roles ? RL.Roles.current() : 'neutral';
+    const n = Math.max(peak || 0, w.peak || 0, w.stars || 0);
+    return RL.Heat.bountyFor(n, role);
+  }
+  function evade() {
+    const w = W(); if (!w) return;
+    const gained = Math.max(peak, w.peak || 0, 1);
+    const role = RL.Roles ? RL.Roles.current() : 'neutral';
+    const pay = RL.Heat.bountyFor(gained, role);
+    RL.Game.addMoney(pay);
+    S().respect += gained;
+    S().totals.evasions = (S().totals.evasions || 0) + 1;
+    if (gained >= 5) S().totals.evade5 = (S().totals.evade5 || 0) + 1;
+    if (RL.Roles) RL.Roles.addXp(role === 'criminal' ? 'criminal' : 'neutral', 12 + gained * 6);
+    RL.UI.toast('Evaded! Bounty +' + RL.fmtMoney(pay), '#7dff5a');
+    try { RL.Audio.play('coin'); } catch (e) { }
+    if (RL.Game.unlockAch) { RL.Game.unlockAch('sp_evade'); if (gained >= 5) RL.Game.unlockAch('sp_evade5'); }
+    if (RL.Daily) RL.Daily.progress('evade', 1);
+    RL.Game.event('evade', { stars: gained });
+    peak = 0; w.peak = 0; w.heat = 0; w.stars = 0; seen = false; cleanFor = 0;
+    if (RL.Foot) RL.Foot.reset();
+    RL.Game.save();
+  }
+  function bust() {
+    const w = W(); if (!w || w.stars <= 0) return;
+    const s = S(), car = RL.Game.currentCar();
+    if (RL.Drive && RL.Drive.dropJoyride) RL.Drive.dropJoyride({ quiet: true });
+    const fee = Math.round(180 * w.stars + (car ? RL.Game.carDef(car.id).price * 0.015 : 0) + 100);
+    const paid = Math.min(s.money, fee);
+    RL.Game.addMoney(-paid);
+    s.totals.busts = (s.totals.busts || 0) + 1;
+    s.respect = Math.max(-20, s.respect - w.stars);
+    if (s.job && (s.job.type === 'heist' || s.job.type === 'smuggle')) s.job = null;
+    w.heat = 0; w.stars = 0; w.peak = 0; peak = 0; pop = 0; cleanFor = 0;
+    cops = []; blocks = []; spikes = []; heli = null;
+    if (RL.Foot) RL.Foot.reset();
+    const hq = (RL.CityMap.buildings || []).find((b) => b.id === 'hq');
+    const p = RL.Hub.player;
+    if (p && hq) { p.x = hq.door.x; p.y = hq.door.y + 48; p.speed = 0; p.h = Math.PI / 2; p.inCar = true; p._pin = 0; }
+    RL.UI.toast('BUSTED. Impound fee ' + RL.fmtMoney(paid), '#ff3b6b');
+    try { RL.Audio.play('error'); } catch (e) { }
+    if (RL.Game.unlockAch) RL.Game.unlockAch('sp_busted');
+    RL.Game.event('busted', { fee: paid });
+    RL.Game.save();
+  }
+  function clearHeat() {
+    const w = W(); if (!w) return;
+    w.heat = 0; w.stars = 0; w.peak = 0; peak = 0; cleanFor = 0;
+    cops = []; blocks = []; spikes = []; heli = null;
+    if (RL.Foot) RL.Foot.reset();
+  }
+
+  function draw(ctx) {
+    const flash = 0.5 + 0.5 * Math.sin(performance.now() / 120);
+    cops.forEach((c) => { if (!c.wrecked) RL.Drive.drawCar(ctx, c, { livery: true, siren: true }); });
+    if (RL.Foot) RL.Foot.draw(ctx);
+    blocks.forEach((b) => RL.Drive.drawCar(ctx, { x: b.x, y: b.y, h: b.h, color: '#f4f7ff' }, { livery: true, siren: true }));
+    spikes.forEach((s) => {
+      ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.h);
+      ctx.fillStyle = '#222'; ctx.fillRect(-s.w, -8, s.w * 2, 16);
+      ctx.fillStyle = '#ddd';
+      for (let i = -s.w; i < s.w; i += 10) { ctx.beginPath(); ctx.moveTo(i, -6); ctx.lineTo(i + 5, 0); ctx.lineTo(i, 6); ctx.fill(); }
+      ctx.restore();
+    });
+    if (heli) {
+      ctx.save(); ctx.translate(heli.x, heli.y);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(18, 22, 34, 16, 0, 0, 7); ctx.fill();
+      const g = ctx.createRadialGradient(0, 40, 10, 0, 40, 150);
+      g.addColorStop(0, 'rgba(255,255,210,0.28)'); g.addColorStop(1, 'rgba(255,255,210,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 40, 150, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#9fb3c8'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(-26, 0); ctx.lineTo(26, 0); ctx.stroke();
+      ctx.fillStyle = flash > 0.5 ? '#ff3b6b' : '#3fa9ff'; ctx.fillRect(-8, -6, 16, 12);
+      ctx.restore();
+    }
+  }
+  function drawHud(ctx, Wd, Hd) {
+    const w = W(); if (!w) return;
+    ctx.save(); ctx.textBaseline = 'top';
+    const y = 8;
+    ctx.font = 'bold 22px Trebuchet MS, sans-serif';
+    let label = '';
+    for (let i = 1; i <= 5; i++) label += i <= w.stars ? '★' : '☆';
+    const bounty = liveBounty();
+    const bountyText = bounty > 0 ? '  $' + bounty : '';
+    ctx.font = 'bold 22px Trebuchet MS, sans-serif';
+    const starsW = ctx.measureText(label).width;
+    ctx.font = 'bold 16px Trebuchet MS, sans-serif';
+    const bountyW = bountyText ? ctx.measureText(bountyText).width : 0;
+    const total = starsW + bountyW;
+    const x0 = Wd / 2 - total / 2;
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 22px Trebuchet MS, sans-serif';
+    ctx.fillStyle = w.stars >= 4 ? '#ff3b6b' : w.stars ? '#ffe03b' : 'rgba(255,255,255,0.35)';
+    ctx.fillText(label, x0, y);
+    if (bountyText) {
+      ctx.font = 'bold 16px Trebuchet MS, sans-serif';
+      ctx.fillStyle = '#b6ff8a';
+      ctx.fillText(bountyText, x0 + starsW, y + 4);
+    }
+    const hp = RL.Foot ? RL.Foot.playerHp() : 100;
+    const hw = 120, hx = Wd / 2 - hw / 2, hy = y + 28;
+    ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(hx, hy, hw, 10);
+    ctx.fillStyle = hp > 55 ? '#7dff5a' : hp > 28 ? '#ffe03b' : '#ff5a7a';
+    ctx.fillRect(hx, hy, hw * RL.clamp(hp / 100, 0, 1), 10);
+    ctx.font = 'bold 11px sans-serif'; ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
+    ctx.fillText('HP', hx - 22, hy - 1);
+    if (w.stars > 0) {
+      const bw = 140, bx = Wd / 2 - bw / 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(bx, y + 44, bw, 8);
+      ctx.fillStyle = '#ff3b6b'; ctx.fillRect(bx, y + 44, bw * RL.clamp(w.heat / RL.Heat.MAX, 0, 1), 8);
+      ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+      const hiding = search <= 0 && hiddenFor > 0;
+      ctx.fillText(hiding ? 'HIDDEN — heat cooling' : (heli ? 'HELICOPTER SPOTLIGHT' : (search > 0 && !seen ? 'SEARCHING' : 'WANTED')), Wd / 2, y + 56);
+    }
+    const role = RL.Roles ? RL.Roles.hud() : null;
+    if (role) { ctx.textAlign = 'left'; ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = role.color; ctx.fillText(role.label, 12, Hd - (document.body.classList.contains('touch') ? 168 : 78)); }
+    ctx.restore();
+  }
+
+  return {
+    report, reportSpeed, update, draw, drawHud, stars, tireCut, bust, evade, clearHeat, W, liveBounty,
+    cops: () => cops, heli: () => heli, blocks: () => blocks, spikes: () => spikes,
+    debugHidden(dt) { const p = RL.Hub.player; cops.forEach((c) => { c.x = p.x + 2000; c.y = p.y; c.seen = false; }); search = 0; hiddenFor = 3; cleanFor = 6; if (heli) heli.x = p.x + 2000; update(dt || 0.5, p); },
+    debugPin() { const p = RL.Hub.player; if (RL.Foot) RL.Foot.reset(cops); if (!cops.length && stars() > 0) ensureCops(p); if (cops[0]) { cops[0].x = p.x + 10; cops[0].y = p.y; } p.speed = 0; p._pin = 20; p._skipFoot = true; update(0.2, p); p._skipFoot = false; }
+  };
+})();

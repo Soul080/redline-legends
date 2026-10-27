@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Redline Legends</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="editor.css">
+</head>
+<body class="mode-title">
+  <!-- The game world (hub & races) is drawn on this canvas -->
+  <canvas id="game"></canvas>
+
+  <!-- Title screen -->
+  <div id="title">
+    <h1><span>REDLINE</span> LEGENDS</h1>
+    <p class="tag">From nobody to legend · a neon street-racing RPG</p>
+    <p class="ver" id="game-version">v1.1.3</p>
+    <div class="title-btns">
+      <button id="btn-continue" class="big">Continue</button>
+      <button id="btn-new" class="big">New Game</button>
+      <button id="btn-multi">Multiplayer</button>
+      <button id="btn-settings">Settings</button>
+      <button id="btn-help">How to Play</button>
+    </div>
+    <p class="hint">Keyboard: arrows/WASD + Enter · Touch supported</p>
+  </div>
+
+  <!-- Hub HUD -->
+  <div id="hud">
+    <div class="hud-left">
+      <div id="hud-name"></div>
+      <div class="xpbar"><i id="hud-xp"></i><span id="hud-xptext"></span></div>
+      <div class="hud-sub"><span id="hud-money"></span> <span id="hud-respect"></span> <span id="hud-points" class="pts"></span></div>
+      <div class="hud-sub small"><span id="hud-league"></span> · <span id="hud-car"></span></div>
+      <div class="hud-sub small" id="hud-clock"></div>
+    </div>
+    <div class="hud-right">
+      <button data-open="inv" title="Inventory (I)">🎒</button>
+      <button data-open="skills" title="Skills (K)">✦</button>
+      <button data-open="quests" title="Quest Log (J)">📜</button>
+      <button data-open="ach" title="Achievements">🏆</button>
+      <button id="btn-daily" title="Daily challenges (H)">📅</button>
+      <button id="btn-photo" title="Photo mode (F)">📷</button>
+      <button id="btn-map" title="City map (M)">🗺</button>
+      <button id="btn-phone" title="Phone (B)">📱</button>
+      <button data-open="settings" title="Settings">⚙</button>
+      <button data-open="menu" title="Menu (Esc)">☰</button>
+    </div>
+  </div>
+
+  <!-- On-screen touch controls (shown on touch devices or via Settings) -->
+  <div id="touch">
+    <div class="pad">
+      <button data-touch="up" class="t-up">▲</button>
+      <button data-touch="left" class="t-left">◀</button>
+      <button data-touch="right" class="t-right">▶</button>
+      <button data-touch="down" class="t-down">▼</button>
+    </div>
+    <div class="acts">
+      <button data-touch="action" class="t-act hub-only">ACT</button>
+      <button data-touch="phone" class="t-phone hub-only">TXT</button>
+      <button data-touch="summon" class="t-summon hub-only">CAR</button>
+      <button data-touch="shift" class="t-shift drag-only">SHIFT</button>
+      <button data-touch="steal" class="t-steal hub-only">STEAL</button>
+      <button data-touch="siren" class="t-siren hub-only">SIR</button>
+      <button data-touch="drift" class="t-drift race-only">DRIFT</button>
+      <button data-touch="nitro" class="t-nitro race-only">NITRO</button>
+      <button data-touch="pause" class="t-pause">❚❚</button>
+    </div>
+  </div>
+
+  <div id="panel" class="panel"></div>
+  <div id="toasts"></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/story.js"></script>
+  <script src="js/city-data.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/input.js"></script>
+  <script src="js/tracks.js"></script>
+  <script src="js/race.js"></script>
+  <script src="js/hub.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/freeplay.js"></script>
+  <script src="js/community-config.js"></script>
+  <script src="js/community.js"></script>
+  <script src="js/net.js"></script>
+  <script src="js/heat.js"></script>
+  <script src="js/pursuit.js"></script>
+  <script src="js/traffic.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/drive.js"></script>
+  <script src="js/wanted.js"></script>
+  <script src="js/foot.js"></script>
+  <script src="js/explode.js"></script>
+  <script src="js/roles.js"></script>
+  <script src="js/jobs.js"></script>
+  <script src="js/drag.js"></script>
+  <script src="js/city.js"></script>
+  <script src="js/extras.js"></script>
+  <!-- Free-form NPC chat (WebLLM, opt-in). Hooks live in ui.js. -->
+  <script src="js/ai-npc.js"></script>
+  <script src="js/summon.js"></script>
+  <script src="js/phone.js"></script>
+</body>
+</html>
