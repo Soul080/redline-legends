@@ -59,7 +59,7 @@ RL.Help = (function () {
       { id: 'race', name: 'Races', html:
         '<p>League nights are in the Race Office. Finish top 3 in all three races to unlock the boss. Beat the boss to move up. Story scenes play between races. Dialogue choices stick.</p>' +
         '<p>Side events include time trial, drift, elimination, and ghost. A blown engine in a race puts you back at the last checkpoint with a time penalty.</p>' +
-        '<p><b>Drag.</b> Walk into the dragway or Pit Lane and talk to the starter. Stage a drag starts the race. The full booth is there if you want to change the length or the stake. Enter on that booth stages the first race you can afford. The distance buttons only change the length. Rev on the brake, launch on green, and shift near redline. Gear ratios are in the booth and the garage. The drag uses your own car, not a stolen one.</p>' +
+        '<p><b>Drag.</b> Walk into the dragway or Pit Lane and talk to the starter. A drag is a normal race on a flat straight, with the same car, the same physics, the same HUD, and the same opponent. Quarter mile is about 400 m. Half mile is about 800 m. The finish line is the far end, so acceleration and top speed decide it. The booth changes the length and the stake. Enter on that booth stages the first race you can afford. The drag uses your own car, not a stolen one.</p>' +
         '<p><b>Free Play</b> is any circuit, laps, AI count, weather, time of day, damage, nitro, catch-up, class, reverse, and collisions. Saved tracks show up there.</p>' +
         '<p><b>AI difficulty</b> in Settings is Easy, Normal, Hard, or Legend. It scales league races, bosses, and Free Play.</p>' },
       { id: 'online', name: 'Online', html:

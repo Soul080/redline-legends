@@ -256,20 +256,26 @@ export const game = {
   },
 
   startDrag() {
-    if (interior.active) interior.leave({ silent: true });
-    ui.closeAll();
-    const strip = this.city.strip;
-    this._hideFreeRoam();
-    this.city.group.visible = true;
-    const tree = ensureTree(strip);
-    const cfg = { kind: 'drag', league: career.state.league, title: 'Quarter Mile', strip, tree, laps: 1 };
-    this.lastCfg = cfg;
-    drag.start(cfg, this.fx);
-    this.mode = 'drag';
-    ui.setMode('drag');
-    this.weather = gfx.night > 0.4 ? 'clear' : this.weather;
-    audio.startMusic('drag');
-    audio.startEngine();
+    const prefs = (career.state && career.state.dragPrefs) || {};
+    const half = !!prefs.half;
+    const league = (career.state && career.state.league) || 1;
+    const table = { 1: 200, 2: 450, 3: 900, 4: 1600 };
+    const stake = prefs.stake === false ? 0 : (table[league] || 200);
+    if (stake && career.state && career.state.money < stake) {
+      ui.toast('Not enough cash for that stake');
+      return;
+    }
+    if (stake && career.state) {
+      career.addMoney(-stake);
+      career.state.dragStake = { amount: stake, settled: false };
+      career.save();
+    }
+    this.startRace({
+      kind: 'drag', track: half ? 'half' : 'quarter', laps: 1, aiCount: 1,
+      league: league, title: half ? 'Half Mile' : 'Quarter Mile',
+      weather: 'clear', time: 'day', damage: true, nitro: true, traffic: false, collisions: true,
+      stake: stake
+    });
   },
 
   _again(cfg) {

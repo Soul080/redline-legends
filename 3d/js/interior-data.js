@@ -87,7 +87,7 @@
       npc('Hal', 'Attendant', 5.8, 6.4, '#ff8a2e', 'gas', 'Ask for a patch', 'High-test and a hose. I can knock a little damage off the car.')
     ] },
     { id: 'dragway', name: 'Redline Dragway', kind: 'drag', floor: '#2a1218', alt: '#341820', wall: '#14080c', trim: '#ff3b6b', npcs: [
-      npc('Nash', 'Starter', 4.8, 6.2, '#ff3b6b', 'drag', 'Stage a drag', 'Hold gas and brake, release the brake on the light, then shift. I can stage you now.', { alt: 'Full booth', altService: 'booth' }),
+      npc('Nash', 'Starter', 4.8, 6.2, '#ff3b6b', 'drag', 'Stage a drag', 'Same car, same pedals, flat straight. The stripe is the finish. I can stage you now.', { alt: 'Full booth', altService: 'booth' }),
       npc('Rex', 'Gear tech', 11.4, 6.4, '#ff8a2e', 'gears', 'Set the gears', 'Short gears launch. Long gears trap. Final drive is the whole ET.')
     ] },
     { id: 'vista', name: 'Vista', kind: 'vista', floor: '#2a2818', alt: '#34321c', wall: '#16150e', trim: '#ffe03b', npcs: [
@@ -130,7 +130,7 @@
       npc('Dr. Sol', 'Surgeon', 5.2, 6.2, '#ff8ad0', 'clinic', 'Full repair', 'Uptown wrecks land here. Same bill as the garage.')
     ] },
     { id: 'pitmeet', name: 'Pit Lane', kind: 'drag', floor: '#241018', alt: '#30141e', wall: '#14080e', trim: '#ff3b6b', npcs: [
-      npc('Slim', 'Starter', 4.6, 6.2, '#ff3b6b', 'drag', 'Stage a drag', 'The tree is south, but I can stage you from this booth. Gas and brake together, then release.', { alt: 'Full booth', altService: 'booth' }),
+      npc('Slim', 'Starter', 4.6, 6.2, '#ff3b6b', 'drag', 'Stage a drag', 'I can put you on the straight from this booth. Gas, brake, steer. The stripe is the finish.', { alt: 'Full booth', altService: 'booth' }),
       npc('Dee', 'Meet captain', 11.2, 6.4, '#ff2ef0', 'pitmeet', 'Street meet', 'When the tree is booked, this lot runs the street gates.')
     ] },
     { id: 'safehouse', name: 'Safehouse', kind: 'crime', floor: '#1a1020', alt: '#241428', wall: '#100814', trim: '#c86bff', npcs: [

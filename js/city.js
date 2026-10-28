@@ -227,7 +227,7 @@ RL.City = (function () {
   function showMeetup(id) {
     const titles = { meetup: '🏁 Neon Meetup', club: '🎧 Club Voltage', pitmeet: '🔧 Pit Lane' };
     const blurb = id === 'pitmeet'
-      ? 'The strip is the long building south of here. Gear ratios live in that booth. This lot is the street meet when the Christmas tree is booked.'
+      ? 'The strip is the long straight south of here. This lot is the street meet when that race is booked.'
       : 'Mira\'s people line cars under the arch. Cops listen. Win the gates and the purse is real.';
     RL.UI.open({
       title: titles[id] || 'Meetup',

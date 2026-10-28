@@ -282,7 +282,7 @@
       Object.keys(this.handlers).forEach((k) => { if (this.handlers[k].stop) this.handlers[k].stop(); document.body.classList.remove('mode-' + k); });
     }
   };
-  RL.Modes.register('drag', RL.Drag);
+  /* Drag is a normal race on an open straight. Do not claim kind "drag" for the old strip sim. */
 
   const origColor = RL.Game.carColor;
   RL.Game.carColor = function (car) { if (car && car.look && car.look.paint) return car.look.paint; return origColor.call(this, car); };

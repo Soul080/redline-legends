@@ -181,7 +181,20 @@ RL.Servers = (function () {
     if (meta.siren != null) remote.siren = !!meta.siren;
     const x = cleanCoord(meta.x), y = cleanCoord(meta.y);
     if (x != null && y != null) {
-      remote.x = x; remote.y = y;
+      if (remote.role === 'police' && remote._placed) {
+        const dx = x - remote.x, dy = y - remote.y;
+        const dist = Math.hypot(dx, dy);
+        const cap = 900;
+        if (dist > cap) {
+          remote.x += dx / dist * cap;
+          remote.y += dy / dist * cap;
+        } else {
+          remote.x = x; remote.y = y;
+        }
+      } else {
+        remote.x = x; remote.y = y;
+        remote._placed = true;
+      }
       if (Number.isFinite(Number(meta.h))) remote.h = Number(meta.h);
       if (Number.isFinite(Number(meta.speed))) remote.speed = Math.max(-500, Math.min(500, Number(meta.speed)));
       pushSample(remote, remote.x, remote.y, remote.h, remote.speed);

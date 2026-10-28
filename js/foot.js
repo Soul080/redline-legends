@@ -279,7 +279,8 @@ RL.Foot = (function () {
       px = x + Math.cos(ang + 1.4) * dist;
       py = y + Math.sin(ang + 1.4) * dist;
     }
-    if (blocked && blocked(px, py, 10)) return { x: x, y: y };
+    if (blocked && blocked(px, py, 10)) return null;
+    if (Math.hypot(px - x, py - y) < dist * 0.85) return null;
     return { x: px, y: py };
   }
 
@@ -296,7 +297,7 @@ RL.Foot = (function () {
       for (let i = 0; i < units.length; i++) if (units[i].cop === c) { u = units[i]; break; }
       const idx = (cops || []).indexOf(c);
       if (!u) {
-        const spot = openSpot(c.x, c.y, angleTo(c.x, c.y, p.x, p.y), 22);
+        const spot = openSpot(c.x, c.y, angleTo(c.x, c.y, p.x, p.y), 22) || { x: c.x, y: c.y };
         units.push({
           cop: c, kind: 'cop', copIndex: idx, x: spot.x, y: spot.y,
           h: angleTo(spot.x, spot.y, p.x, p.y), react: reactDelay(stars),
@@ -312,7 +313,8 @@ RL.Foot = (function () {
     let thugs = units.filter((u) => u.kind === 'thug');
     while (thugs.length < wantThugs) {
       const ang = thugs.length * 2.2 + 0.4;
-      const spot = openSpot(p.x, p.y, ang, 96);
+      const spot = openSpot(p.x, p.y, ang, 1400);
+      if (!spot) break;
       units.push({
         kind: 'thug', x: spot.x, y: spot.y, h: angleTo(spot.x, spot.y, p.x, p.y),
         react: reactDelay(stars), wind: 0, cool: 0, mode: null, shoots: stars >= 5, flash: 0

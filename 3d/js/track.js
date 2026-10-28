@@ -21,10 +21,10 @@ function asphalt() {
 export function buildTrack(key, reverse) {
   const def = RL.TRACKS[key];
   let cp = def.pts.map((p) => ({ x: p[0] * POS, z: p[1] * POS, y: 0, bank: 0 }));
-  if (reverse) cp.reverse();
-  const pts = sampleSpline(cp);
+  if (reverse && !def.open) cp.reverse();
+  const pts = def.open ? sampleOpen(cp) : sampleSpline(cp);
   return finalize(pts, {
-    key, def, theme: def.theme, walls: true,
+    key, def, theme: def.theme, walls: true, open: !!def.open,
     halfW: def.width * WIDTH * 0.5,
     grass: def.grass * WIDTH * 0.85
   });
@@ -46,6 +46,33 @@ export function buildCustomTrack(def) {
     halfW: width / 2,
     grass: def.grass != null ? def.grass : Math.max(4, width * 0.4)
   });
+}
+
+function sampleOpen(body) {
+  if (!body || body.length < 2) return [];
+  const first = body[0], second = body[1], last = body[body.length - 1], prev = body[body.length - 2];
+  const cp = [
+    { x: first.x * 2 - second.x, z: first.z * 2 - second.z, y: 0, bank: 0 },
+    ...body,
+    { x: last.x * 2 - prev.x, z: last.z * 2 - prev.z, y: 0, bank: 0 }
+  ];
+  const pts = [];
+  const cr = (a, b, c, d, t, t2, t3) => 0.5 * ((2 * b) + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+  for (let i = 1; i < cp.length - 2; i++) {
+    const p0 = cp[i - 1], p1 = cp[i], p2 = cp[i + 1], p3 = cp[i + 2];
+    const span = Math.hypot(p2.x - p1.x, p2.z - p1.z);
+    const steps = Math.max(4, Math.ceil(span / 5));
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps, t2 = t * t, t3 = t2 * t;
+      pts.push({
+        x: cr(p0.x, p1.x, p2.x, p3.x, t, t2, t3),
+        z: cr(p0.z, p1.z, p2.z, p3.z, t, t2, t3),
+        y: 0,
+        bank: 0
+      });
+    }
+  }
+  return pts;
 }
 
 function sampleSpline(cp) {
@@ -70,11 +97,22 @@ function sampleSpline(cp) {
 }
 
 function finalize(pts, extra) {
+  const open = !!extra.open;
   const N = pts.length;
   let len = 0;
   let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9, minY = 1e9, maxY = -1e9;
   for (let i = 0; i < N; i++) {
-    const a = pts[i], b = pts[(i + 1) % N];
+    const a = pts[i];
+    if (open && i === N - 1 && N > 1) {
+      const p = pts[N - 2];
+      a.tx = p.tx; a.tz = p.tz; a.nx = p.nx; a.nz = p.nz; a.seg = 0.001; a.curv = 0;
+      a.y = a.y || 0;
+      if (a.x < minX) minX = a.x; if (a.x > maxX) maxX = a.x;
+      if (a.z < minZ) minZ = a.z; if (a.z > maxZ) maxZ = a.z;
+      if ((a.y || 0) < minY) minY = a.y || 0; if ((a.y || 0) > maxY) maxY = a.y || 0;
+      continue;
+    }
+    const b = open ? pts[Math.min(N - 1, i + 1)] : pts[(i + 1) % N];
     const dx = b.x - a.x, dz = b.z - a.z;
     const seg = Math.hypot(dx, dz) || 0.001;
     a.tx = dx / seg; a.tz = dz / seg;
@@ -93,8 +131,9 @@ function finalize(pts, extra) {
     while (a.curv > Math.PI) a.curv -= Math.PI * 2;
     while (a.curv < -Math.PI) a.curv += Math.PI * 2;
   }
-  const cps = [0, Math.floor(N * 0.25), Math.floor(N * 0.5), Math.floor(N * 0.75)];
-  return Object.assign({ pts, N, len, cps, minX, maxX, minZ, maxZ, minY, maxY }, extra);
+  const cps = open ? [0, Math.max(1, N - 3)] : [0, Math.floor(N * 0.25), Math.floor(N * 0.5), Math.floor(N * 0.75)];
+  const finishAt = open ? Math.max(1, N - 3) : 0;
+  return Object.assign({ pts, N, len, cps, minX, maxX, minZ, maxZ, minY, maxY, open, finishAt }, extra);
 }
 
 /** Right and up vectors after banking around the tangent. bank is radians. */
@@ -133,12 +172,15 @@ export function sampleAtDist(track, dist) {
 export function sampleAhead(track, car, meters) {
   const pts = track.pts;
   const N = track.N;
+  const open = !!track.open;
   let i = car.idx || 0;
   let left = meters;
   for (let n = 0; n < N; n++) {
+    if (open && i >= N - 1) return pts[N - 1];
     const seg = pts[i].seg;
+    const next = open ? Math.min(N - 1, i + 1) : (i + 1) % N;
     if (left <= seg) {
-      const a = pts[i], b = pts[(i + 1) % N];
+      const a = pts[i], b = pts[next];
       const t = seg > 0 ? left / seg : 0;
       return {
         x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t,
@@ -146,28 +188,37 @@ export function sampleAhead(track, car, meters) {
       };
     }
     left -= seg;
-    i = (i + 1) % N;
+    i = next;
   }
-  return pts[car.idx || 0];
+  return pts[open ? N - 1 : (car.idx || 0)];
 }
 
 export function updateTrackPos(track, car) {
   const pts = track.pts, N = track.N;
+  const open = !!track.open;
   let bi = car.idx || 0;
   let best = Infinity;
   const scan = (from, to, step) => {
     for (let k = from; k <= to; k += step) {
-      const i = ((bi + k) % N + N) % N;
+      const i = open ? Math.max(0, Math.min(N - 1, bi + k)) : ((bi + k) % N + N) % N;
       const p = pts[i];
       const d = (p.x - car.x) ** 2 + (p.z - car.z) ** 2;
       if (d < best) { best = d; bi = i; }
     }
   };
-  scan(-20, 50, 1);
-  if (best > 60 * 60) { bi = 0; best = Infinity; scan(0, N - 1, 1); }
+  scan(open ? -12 : -20, open ? 30 : 50, 1);
+  if (!open && best > 60 * 60) { bi = 0; best = Infinity; scan(0, N - 1, 1); }
   car.idx = bi;
   const p = pts[bi];
   car.lat = (car.x - p.x) * p.nx + (car.z - p.z) * p.nz;
+  if (open) {
+    car.progress = car.finished ? 1e9 - car.finishTime : bi;
+    if (bi >= (track.finishAt || N - 3) && (car.lapsDone || 0) < 1) {
+      car.lapsDone = 1;
+      return 'lap';
+    }
+    return null;
+  }
   const win = Math.floor(N * 0.1);
   if (car.nextCp === 0) {
     if (bi < win && car._armed) {
@@ -201,7 +252,11 @@ function geoFrom(positions, normals, uvs, indices, colors) {
 function pushTri(idx, a, b, c) { idx.push(a, b, c); }
 
 /** Closed ribbon. half-width is meters. Elevation and bank come off each sample. */
-function ribbon(pts, half, lift) {
+function nextIndex(i, N, closed) {
+  return closed ? (i + 1) % N : i + 1;
+}
+function ribbon(pts, half, lift, closed) {
+  if (closed == null) closed = true;
   const pos = [], nrm = [], uv = [], idx = [];
   let dist = 0;
   for (let i = 0; i < pts.length; i++) {
@@ -215,16 +270,18 @@ function ribbon(pts, half, lift) {
     dist += p.seg;
   }
   const N = pts.length;
-  for (let i = 0; i < N; i++) {
+  const segs = closed ? N : N - 1;
+  for (let i = 0; i < segs; i++) {
     const b = i * 2;
-    const c = ((i + 1) % N) * 2;
+    const c = nextIndex(i, N, closed) * 2;
     pushTri(idx, b, c, b + 1);
     pushTri(idx, b + 1, c, c + 1);
   }
   return geoFrom(pos, nrm, uv, idx);
 }
 
-function wallRibbon(pts, lateral, height) {
+function wallRibbon(pts, lateral, height, closed) {
+  if (closed == null) closed = true;
   const pos = [], nrm = [], uv = [], idx = [];
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
@@ -236,16 +293,18 @@ function wallRibbon(pts, lateral, height) {
     uv.push(0, i, 1, i);
   }
   const N = pts.length;
-  for (let i = 0; i < N; i++) {
+  const segs = closed ? N : N - 1;
+  for (let i = 0; i < segs; i++) {
     const b = i * 2;
-    const c = ((i + 1) % N) * 2;
+    const c = nextIndex(i, N, closed) * 2;
     pushTri(idx, b, b + 1, c);
     pushTri(idx, c, b + 1, c + 1);
   }
   return geoFrom(pos, nrm, uv, idx);
 }
 
-function curbRibbon(pts, inner, outer) {
+function curbRibbon(pts, inner, outer, closed) {
+  if (closed == null) closed = true;
   const pos = [], nrm = [], col = [], idx = [];
   let dist = 0;
   for (let i = 0; i < pts.length; i++) {
@@ -262,9 +321,10 @@ function curbRibbon(pts, inner, outer) {
     dist += p.seg;
   }
   const N = pts.length;
-  for (let i = 0; i < N; i++) {
+  const segs = closed ? N : N - 1;
+  for (let i = 0; i < segs; i++) {
     const b = i * 2;
-    const c = ((i + 1) % N) * 2;
+    const c = nextIndex(i, N, closed) * 2;
     pushTri(idx, b, c, b + 1);
     pushTri(idx, b + 1, c, c + 1);
   }
@@ -343,12 +403,13 @@ export function buildTrackMesh(track) {
     roughness: 0.92, metalness: 0.05, envMapIntensity: 0.45, color: roadColor
   });
   roadMat.userData.tex = tex;
-  const road = new THREE.Mesh(ribbon(track.pts, track.halfW, 0.03), roadMat);
+  const closed = !track.open;
+  const road = new THREE.Mesh(ribbon(track.pts, track.halfW, 0.03, closed), roadMat);
   road.receiveShadow = true;
   group.add(road);
 
   const curbMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.05 });
-  const curb = new THREE.Mesh(curbRibbon(track.pts, track.halfW, track.halfW + 0.7), curbMat);
+  const curb = new THREE.Mesh(curbRibbon(track.pts, track.halfW, track.halfW + 0.7, closed), curbMat);
   curb.receiveShadow = true;
   group.add(curb);
 
@@ -357,6 +418,10 @@ export function buildTrackMesh(track) {
   if (dashes) group.add(new THREE.Mesh(dashes, lineMat));
   const checks = new THREE.Mesh(checkered(track.pts[0], track.halfW * 0.96), new THREE.MeshBasicMaterial({ vertexColors: true }));
   group.add(checks);
+  if (track.open) {
+    const fin = new THREE.Mesh(checkered(track.pts[track.pts.length - 1], track.halfW * 0.96), new THREE.MeshBasicMaterial({ vertexColors: true }));
+    group.add(fin);
+  }
 
   const lim = track.halfW + track.grass;
   const wallColor = theme === 'neon' ? 0xff2ef0 : theme === 'snow' ? 0xc5d4e4 : theme === 'desert' ? 0x8a5a32 : 0x3a4254;
@@ -365,7 +430,7 @@ export function buildTrackMesh(track) {
     emissive: theme === 'neon' ? 0xff2ef0 : 0x000000, emissiveIntensity: theme === 'neon' ? 0.55 : 0
   });
   if (track.walls !== false) for (const side of [-1, 1]) {
-    const wall = new THREE.Mesh(wallRibbon(track.pts, side * lim, theme === 'neon' ? 1.4 : 0.9), wallMat);
+    const wall = new THREE.Mesh(wallRibbon(track.pts, side * lim, theme === 'neon' ? 1.4 : 0.9, closed), wallMat);
     wall.castShadow = true;
     wall.receiveShadow = true;
     group.add(wall);

@@ -326,11 +326,12 @@ function ensureThugs(wanted, player, stars) {
   while (wanted.thugs.length < n) {
     const mesh = buildCar('Coupe', { color: '#3a1420', rims: 0, decal: 'none' }, {});
     gfx.world.add(mesh);
-    const ang = wanted.thugs.length === 0 ? 0.6 : 2.4;
-    const x = player.x + Math.cos(ang) * 18;
-    const z = player.z + Math.sin(ang) * 18;
+    const h = player.h || 0;
+    const side = wanted.thugs.length === 0 ? 14 : -14;
+    const x = player.x - Math.sin(h) * 140 + Math.cos(h) * side;
+    const z = player.z - Math.cos(h) * 140 - Math.sin(h) * side;
     wanted.thugs.push({
-      mesh, x, z, h: ang + Math.PI, vx: 0, vz: 0, speed: 0,
+      mesh, x, z, h: h, vx: 0, vz: 0, speed: 0,
       dismounted: false, officer: null, from: 'thug'
     });
   }

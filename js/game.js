@@ -830,6 +830,18 @@ RL.Game = {
       const share = [1, 0.6, 0.4, 0.25, 0.15, 0.1][pos - 1] || 0.1;
       money = mult * share * (cfg.kind === 'boss' ? 2.5 : cfg.kind === 'elimination' ? 1.2 : 1);
       xp = (60 + L.id * 40) * (1.3 - pos * 0.15) * (cfg.kind === 'boss' ? 2 : 1);
+    } else if (cfg.kind === 'drag') {
+      const won = pos === 1;
+      money = mult * (won ? 0.35 : 0.08);
+      xp = (50 + L.id * 20) * (won ? 1.2 : 0.4);
+      if (RL.DragRules && s.dragStake) {
+        const deal = RL.DragRules.settle(s, { win: won, foul: false }, (id) => ({
+          uid: RL.uid(), id: id, damage: 0, parts: {}, tune: { gear: 0, aero: 0 }
+        }));
+        if (deal && deal.paid) notes.push('Stake paid ' + RL.fmtMoney(deal.paid));
+        else if (cfg.stake) notes.push('Stake lost');
+        if (deal && deal.car) notes.push('Pink slip: ' + (this.carDef(deal.car) ? this.carDef(deal.car).name : deal.car));
+      }
     } else if (cfg.kind === 'training') {
       xp = 40 + res.cleanLaps * 25 + Math.min(150, res.drift / 40); money = 0;
     } else if (cfg.kind === 'custom') {

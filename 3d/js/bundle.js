@@ -1,5 +1,5 @@
 (() => {
-  // 3d/js/data.js
+  // js/data.js
   var RL = {};
   RL.RARITIES = {
     common: { name: "Common", color: "#c9d1d9", mult: 1, price: 1 },
@@ -165,6 +165,26 @@
       weather: ["clear"],
       times: ["day"],
       pts: [[400, 400], [1600, 400], [1900, 700], [1600, 1e3], [400, 1e3], [100, 700]]
+    },
+    quarter: {
+      name: "Quarter Mile",
+      theme: "city",
+      width: 200,
+      grass: 40,
+      open: true,
+      weather: ["clear"],
+      times: ["day", "night"],
+      pts: [[100, 500], [600, 500], [1100, 500], [1600, 500], [2100, 500]]
+    },
+    half: {
+      name: "Half Mile",
+      theme: "city",
+      width: 200,
+      grass: 40,
+      open: true,
+      weather: ["clear"],
+      times: ["day", "night"],
+      pts: [[100, 500], [600, 500], [1100, 500], [1600, 500], [2100, 500], [2600, 500], [3100, 500], [3600, 500], [4100, 500]]
     }
   };
   RL.PERSONALITIES = {
@@ -349,7 +369,7 @@
     { id: "writeoff", name: "Write-Off", desc: "Total a car. The fireball is free. The clock and the tow are not." }
   ]);
 
-  // 3d/js/util.js
+  // js/util.js
   var clamp = (v, a, b) => v < a ? a : v > b ? b : v;
   var lerp = (a, b, t) => a + (b - a) * t;
   var damp = (a, b, lambda, dt) => lerp(a, b, 1 - Math.exp(-lambda * dt));
@@ -401,7 +421,7 @@
     return { x: Math.cos(h), z: -Math.sin(h) };
   }
 
-  // 3d/js/state.js
+  // js/state.js
   var SAVE_KEY = "redline_legends_save_v1";
   var SAVE_BACKUP_KEY = "redline_legends_save_v1_backup";
   var LEGACY_3D_KEY = "redline_legends_3d_save_v1";
@@ -1019,11 +1039,18 @@
         xp = 40 + (res.cleanLaps || 0) * 25 + Math.min(150, (res.drift || 0) / 40);
       } else if (cfg.kind === "drag") {
         const won = pos === 1 && !res.foul;
-        money2 = mult * (won ? 0.85 : 0.18);
+        money2 = mult * (won ? 0.35 : 0.08);
         xp = (70 + L.id * 35) * (won ? 1.35 : 0.4);
-        money2 += (res.perfectShifts || 0) * 50;
-        if (res.foul) notes.push("Red light \u2014 the win doesn't count.");
-        if ((res.perfectShifts || 0) >= 3) notes.push("Clean shifts. The gearbox noticed.");
+        const stake = s.dragStake;
+        if (stake && !stake.settled) {
+          stake.settled = true;
+          if (won && stake.amount) {
+            const pay = Math.round(stake.amount * 2);
+            this.addMoney(pay);
+            notes.push("Stake paid $" + pay);
+          } else if (stake.amount) notes.push("Stake lost");
+          s.dragStake = null;
+        }
       } else if (cfg.kind === "custom") {
         const diff = cfg.aiDiff || 1;
         const won = pos === 1;
@@ -1141,7 +1168,7 @@
     }
   };
 
-  // 3d/js/input_defaults.js
+  // js/input_defaults.js
   var DEFAULT_KEYS = {
     up: ["ArrowUp", "KeyW"],
     down: ["ArrowDown", "KeyS"],
@@ -1173,7 +1200,7 @@
     camera: "Camera view"
   };
 
-  // 3d/js/settings.js
+  // js/settings.js
   var SETTINGS_KEY = "redline_legends_3d_settings_v1";
   var QUALITY = {
     low: {
@@ -1256,7 +1283,7 @@
     }
   };
 
-  // 3d/js/audio.js
+  // js/audio.js
   var ctx = null;
   var master = null;
   var sfxGain = null;
@@ -1436,7 +1463,7 @@
     }
   };
 
-  // 3d/js/input.js
+  // js/input.js
   var keys = /* @__PURE__ */ Object.create(null);
   var pressed = /* @__PURE__ */ Object.create(null);
   var touch = /* @__PURE__ */ Object.create(null);
@@ -1530,7 +1557,7 @@
     }
   };
 
-  // 3d/vendor/three/three.module.js
+  // vendor/three/three.module.js
   var REVISION = "170";
   var CullFaceNone = 0;
   var CullFaceBack = 1;
@@ -23207,8 +23234,8 @@ void main() {
           addVertex(a);
           addVertex(b);
           addVertex(c);
-          const nextIndex = verticesArray.length / 3;
-          const uvs = uvgen.generateTopUV(scope, verticesArray, nextIndex - 3, nextIndex - 2, nextIndex - 1);
+          const nextIndex2 = verticesArray.length / 3;
+          const uvs = uvgen.generateTopUV(scope, verticesArray, nextIndex2 - 3, nextIndex2 - 2, nextIndex2 - 1);
           addUV(uvs[0]);
           addUV(uvs[1]);
           addUV(uvs[2]);
@@ -23220,8 +23247,8 @@ void main() {
           addVertex(b);
           addVertex(c);
           addVertex(d);
-          const nextIndex = verticesArray.length / 3;
-          const uvs = uvgen.generateSideWallUV(scope, verticesArray, nextIndex - 6, nextIndex - 3, nextIndex - 2, nextIndex - 1);
+          const nextIndex2 = verticesArray.length / 3;
+          const uvs = uvgen.generateSideWallUV(scope, verticesArray, nextIndex2 - 6, nextIndex2 - 3, nextIndex2 - 2, nextIndex2 - 1);
           addUV(uvs[0]);
           addUV(uvs[1]);
           addUV(uvs[3]);
@@ -25077,7 +25104,7 @@ void main() {
     }
   }
 
-  // 3d/vendor/three/addons/shaders/CopyShader.js
+  // vendor/three/addons/shaders/CopyShader.js
   var CopyShader = {
     name: "CopyShader",
     uniforms: {
@@ -25117,7 +25144,7 @@ void main() {
     )
   };
 
-  // 3d/vendor/three/addons/postprocessing/Pass.js
+  // vendor/three/addons/postprocessing/Pass.js
   var Pass = class {
     constructor() {
       this.isPass = true;
@@ -25161,7 +25188,7 @@ void main() {
     }
   };
 
-  // 3d/vendor/three/addons/postprocessing/ShaderPass.js
+  // vendor/three/addons/postprocessing/ShaderPass.js
   var ShaderPass = class extends Pass {
     constructor(shader, textureID) {
       super();
@@ -25201,7 +25228,7 @@ void main() {
     }
   };
 
-  // 3d/vendor/three/addons/postprocessing/MaskPass.js
+  // vendor/three/addons/postprocessing/MaskPass.js
   var MaskPass = class extends Pass {
     constructor(scene, camera) {
       super();
@@ -25258,7 +25285,7 @@ void main() {
     }
   };
 
-  // 3d/vendor/three/addons/postprocessing/EffectComposer.js
+  // vendor/three/addons/postprocessing/EffectComposer.js
   var EffectComposer = class {
     constructor(renderer, renderTarget) {
       this.renderer = renderer;
@@ -25380,7 +25407,7 @@ void main() {
     }
   };
 
-  // 3d/vendor/three/addons/postprocessing/RenderPass.js
+  // vendor/three/addons/postprocessing/RenderPass.js
   var RenderPass = class extends Pass {
     constructor(scene, camera, overrideMaterial = null, clearColor = null, clearAlpha = null) {
       super();
@@ -25431,7 +25458,7 @@ void main() {
     }
   };
 
-  // 3d/vendor/three/addons/shaders/LuminosityHighPassShader.js
+  // vendor/three/addons/shaders/LuminosityHighPassShader.js
   var LuminosityHighPassShader = {
     name: "LuminosityHighPassShader",
     shaderID: "luminosityHighPass",
@@ -25484,7 +25511,7 @@ void main() {
     )
   };
 
-  // 3d/vendor/three/addons/postprocessing/UnrealBloomPass.js
+  // vendor/three/addons/postprocessing/UnrealBloomPass.js
   var UnrealBloomPass = class _UnrealBloomPass extends Pass {
     constructor(resolution, strength, radius, threshold) {
       super();
@@ -25740,7 +25767,7 @@ void main() {
   UnrealBloomPass.BlurDirectionX = new Vector2(1, 0);
   UnrealBloomPass.BlurDirectionY = new Vector2(0, 1);
 
-  // 3d/vendor/three/addons/shaders/OutputShader.js
+  // vendor/three/addons/shaders/OutputShader.js
   var OutputShader = {
     name: "OutputShader",
     uniforms: {
@@ -25824,7 +25851,7 @@ void main() {
     )
   };
 
-  // 3d/vendor/three/addons/postprocessing/OutputPass.js
+  // vendor/three/addons/postprocessing/OutputPass.js
   var OutputPass = class extends Pass {
     constructor() {
       super();
@@ -25871,7 +25898,7 @@ void main() {
     }
   };
 
-  // 3d/js/renderer.js
+  // js/renderer.js
   var MotionBlurShader = {
     name: "SpeedBlur",
     uniforms: {
@@ -26520,7 +26547,7 @@ void main() {
     }
   };
 
-  // 3d/js/textures.js
+  // js/textures.js
   function canvas(w, h) {
     const c = document.createElement("canvas");
     c.width = w;
@@ -26769,7 +26796,7 @@ void main() {
     return s;
   }
 
-  // 3d/js/particles.js
+  // js/particles.js
   var VERT = `
   attribute float aSize;
   attribute float aAlpha;
@@ -27050,7 +27077,7 @@ void main() {
     };
   }
 
-  // 3d/js/districts.js
+  // js/districts.js
   var DOWNTOWN = { id: "downtown", name: "Downtown", tint: 1717048, blurb: "Where every nobody starts." };
   var HARBOR = { id: "harbor", name: "Harbor", tint: 1323076, blurb: "Cranes, salt air, and quiet money." };
   var NEON = { id: "neon", name: "Neon Mile", tint: 2757684, blurb: "The lights never go out." };
@@ -27494,7 +27521,7 @@ void main() {
         x: tower.x,
         z: tower.z,
         r: 14,
-        text: "Christmas tree, timing booth, and a board of ET records that still has blank lines."
+        text: "The tower opens the same straight as the dragway. Quarter mile or half mile, finish line at the far end."
       });
       info.dragway.buildings += 4;
       info.dragway.pois.push("drag");
@@ -27567,7 +27594,7 @@ void main() {
     return g;
   }
 
-  // 3d/js/city.js
+  // js/city.js
   var CITY = {
     pitch: 86,
     roadW: 15,
@@ -28192,7 +28219,7 @@ void main() {
     return best;
   }
 
-  // 3d/js/track.js
+  // js/track.js
   var POS = 0.2;
   var WIDTH = 0.095;
   var asphaltTex = null;
@@ -28203,13 +28230,14 @@ void main() {
   function buildTrack(key, reverse) {
     const def = RL.TRACKS[key];
     let cp = def.pts.map((p) => ({ x: p[0] * POS, z: p[1] * POS, y: 0, bank: 0 }));
-    if (reverse) cp.reverse();
-    const pts = sampleSpline(cp);
+    if (reverse && !def.open) cp.reverse();
+    const pts = def.open ? sampleOpen(cp) : sampleSpline(cp);
     return finalize(pts, {
       key,
       def,
       theme: def.theme,
       walls: true,
+      open: !!def.open,
       halfW: def.width * WIDTH * 0.5,
       grass: def.grass * WIDTH * 0.85
     });
@@ -28232,6 +28260,32 @@ void main() {
       grass: def.grass != null ? def.grass : Math.max(4, width * 0.4)
     });
   }
+  function sampleOpen(body) {
+    if (!body || body.length < 2) return [];
+    const first = body[0], second = body[1], last2 = body[body.length - 1], prev = body[body.length - 2];
+    const cp = [
+      { x: first.x * 2 - second.x, z: first.z * 2 - second.z, y: 0, bank: 0 },
+      ...body,
+      { x: last2.x * 2 - prev.x, z: last2.z * 2 - prev.z, y: 0, bank: 0 }
+    ];
+    const pts = [];
+    const cr = (a, b, c, d, t, t2, t3) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+    for (let i = 1; i < cp.length - 2; i++) {
+      const p0 = cp[i - 1], p1 = cp[i], p2 = cp[i + 1], p3 = cp[i + 2];
+      const span = Math.hypot(p2.x - p1.x, p2.z - p1.z);
+      const steps = Math.max(4, Math.ceil(span / 5));
+      for (let s = 0; s < steps; s++) {
+        const t = s / steps, t2 = t * t, t3 = t2 * t;
+        pts.push({
+          x: cr(p0.x, p1.x, p2.x, p3.x, t, t2, t3),
+          z: cr(p0.z, p1.z, p2.z, p3.z, t, t2, t3),
+          y: 0,
+          bank: 0
+        });
+      }
+    }
+    return pts;
+  }
   function sampleSpline(cp) {
     const n = cp.length;
     const pts = [];
@@ -28253,11 +28307,30 @@ void main() {
     return pts;
   }
   function finalize(pts, extra) {
+    const open2 = !!extra.open;
     const N = pts.length;
     let len = 0;
     let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9, minY = 1e9, maxY = -1e9;
     for (let i = 0; i < N; i++) {
-      const a = pts[i], b = pts[(i + 1) % N];
+      const a = pts[i];
+      if (open2 && i === N - 1 && N > 1) {
+        const p = pts[N - 2];
+        a.tx = p.tx;
+        a.tz = p.tz;
+        a.nx = p.nx;
+        a.nz = p.nz;
+        a.seg = 1e-3;
+        a.curv = 0;
+        a.y = a.y || 0;
+        if (a.x < minX) minX = a.x;
+        if (a.x > maxX) maxX = a.x;
+        if (a.z < minZ) minZ = a.z;
+        if (a.z > maxZ) maxZ = a.z;
+        if ((a.y || 0) < minY) minY = a.y || 0;
+        if ((a.y || 0) > maxY) maxY = a.y || 0;
+        continue;
+      }
+      const b = open2 ? pts[Math.min(N - 1, i + 1)] : pts[(i + 1) % N];
       const dx = b.x - a.x, dz = b.z - a.z;
       const seg = Math.hypot(dx, dz) || 1e-3;
       a.tx = dx / seg;
@@ -28281,8 +28354,9 @@ void main() {
       while (a.curv > Math.PI) a.curv -= Math.PI * 2;
       while (a.curv < -Math.PI) a.curv += Math.PI * 2;
     }
-    const cps = [0, Math.floor(N * 0.25), Math.floor(N * 0.5), Math.floor(N * 0.75)];
-    return Object.assign({ pts, N, len, cps, minX, maxX, minZ, maxZ, minY, maxY }, extra);
+    const cps = open2 ? [0, Math.max(1, N - 3)] : [0, Math.floor(N * 0.25), Math.floor(N * 0.5), Math.floor(N * 0.75)];
+    const finishAt = open2 ? Math.max(1, N - 3) : 0;
+    return Object.assign({ pts, N, len, cps, minX, maxX, minZ, maxZ, minY, maxY, open: open2, finishAt }, extra);
   }
   function frame(p) {
     const bank = p.bank || 0;
@@ -28323,12 +28397,15 @@ void main() {
   function sampleAhead(track, car, meters) {
     const pts = track.pts;
     const N = track.N;
+    const open2 = !!track.open;
     let i = car.idx || 0;
     let left = meters;
     for (let n = 0; n < N; n++) {
+      if (open2 && i >= N - 1) return pts[N - 1];
       const seg = pts[i].seg;
+      const next = open2 ? Math.min(N - 1, i + 1) : (i + 1) % N;
       if (left <= seg) {
-        const a = pts[i], b = pts[(i + 1) % N];
+        const a = pts[i], b = pts[next];
         const t = seg > 0 ? left / seg : 0;
         return {
           x: a.x + (b.x - a.x) * t,
@@ -28341,17 +28418,18 @@ void main() {
         };
       }
       left -= seg;
-      i = (i + 1) % N;
+      i = next;
     }
-    return pts[car.idx || 0];
+    return pts[open2 ? N - 1 : car.idx || 0];
   }
   function updateTrackPos(track, car) {
     const pts = track.pts, N = track.N;
+    const open2 = !!track.open;
     let bi = car.idx || 0;
     let best = Infinity;
     const scan = (from, to, step2) => {
       for (let k = from; k <= to; k += step2) {
-        const i = ((bi + k) % N + N) % N;
+        const i = open2 ? Math.max(0, Math.min(N - 1, bi + k)) : ((bi + k) % N + N) % N;
         const p2 = pts[i];
         const d = (p2.x - car.x) ** 2 + (p2.z - car.z) ** 2;
         if (d < best) {
@@ -28360,8 +28438,8 @@ void main() {
         }
       }
     };
-    scan(-20, 50, 1);
-    if (best > 60 * 60) {
+    scan(open2 ? -12 : -20, open2 ? 30 : 50, 1);
+    if (!open2 && best > 60 * 60) {
       bi = 0;
       best = Infinity;
       scan(0, N - 1, 1);
@@ -28369,6 +28447,14 @@ void main() {
     car.idx = bi;
     const p = pts[bi];
     car.lat = (car.x - p.x) * p.nx + (car.z - p.z) * p.nz;
+    if (open2) {
+      car.progress = car.finished ? 1e9 - car.finishTime : bi;
+      if (bi >= (track.finishAt || N - 3) && (car.lapsDone || 0) < 1) {
+        car.lapsDone = 1;
+        return "lap";
+      }
+      return null;
+    }
     const win = Math.floor(N * 0.1);
     if (car.nextCp === 0) {
       if (bi < win && car._armed) {
@@ -28400,7 +28486,11 @@ void main() {
   function pushTri(idx, a, b, c) {
     idx.push(a, b, c);
   }
-  function ribbon(pts, half, lift) {
+  function nextIndex(i, N, closed) {
+    return closed ? (i + 1) % N : i + 1;
+  }
+  function ribbon(pts, half, lift, closed) {
+    if (closed == null) closed = true;
     const pos = [], nrm = [], uv = [], idx = [];
     let dist = 0;
     for (let i = 0; i < pts.length; i++) {
@@ -28414,15 +28504,17 @@ void main() {
       dist += p.seg;
     }
     const N = pts.length;
-    for (let i = 0; i < N; i++) {
+    const segs = closed ? N : N - 1;
+    for (let i = 0; i < segs; i++) {
       const b = i * 2;
-      const c = (i + 1) % N * 2;
+      const c = nextIndex(i, N, closed) * 2;
       pushTri(idx, b, c, b + 1);
       pushTri(idx, b + 1, c, c + 1);
     }
     return geoFrom(pos, nrm, uv, idx);
   }
-  function wallRibbon(pts, lateral, height) {
+  function wallRibbon(pts, lateral, height, closed) {
+    if (closed == null) closed = true;
     const pos = [], nrm = [], uv = [], idx = [];
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
@@ -28434,15 +28526,17 @@ void main() {
       uv.push(0, i, 1, i);
     }
     const N = pts.length;
-    for (let i = 0; i < N; i++) {
+    const segs = closed ? N : N - 1;
+    for (let i = 0; i < segs; i++) {
       const b = i * 2;
-      const c = (i + 1) % N * 2;
+      const c = nextIndex(i, N, closed) * 2;
       pushTri(idx, b, b + 1, c);
       pushTri(idx, c, b + 1, c + 1);
     }
     return geoFrom(pos, nrm, uv, idx);
   }
-  function curbRibbon(pts, inner, outer) {
+  function curbRibbon(pts, inner, outer, closed) {
+    if (closed == null) closed = true;
     const pos = [], nrm = [], col = [], idx = [];
     let dist = 0;
     for (let i = 0; i < pts.length; i++) {
@@ -28459,9 +28553,10 @@ void main() {
       dist += p.seg;
     }
     const N = pts.length;
-    for (let i = 0; i < N; i++) {
+    const segs = closed ? N : N - 1;
+    for (let i = 0; i < segs; i++) {
       const b = i * 2;
-      const c = (i + 1) % N * 2;
+      const c = nextIndex(i, N, closed) * 2;
       pushTri(idx, b, c, b + 1);
       pushTri(idx, b + 1, c, c + 1);
     }
@@ -28547,11 +28642,12 @@ void main() {
       color: roadColor
     });
     roadMat.userData.tex = tex;
-    const road = new Mesh(ribbon(track.pts, track.halfW, 0.03), roadMat);
+    const closed = !track.open;
+    const road = new Mesh(ribbon(track.pts, track.halfW, 0.03, closed), roadMat);
     road.receiveShadow = true;
     group.add(road);
     const curbMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.05 });
-    const curb = new Mesh(curbRibbon(track.pts, track.halfW, track.halfW + 0.7), curbMat);
+    const curb = new Mesh(curbRibbon(track.pts, track.halfW, track.halfW + 0.7, closed), curbMat);
     curb.receiveShadow = true;
     group.add(curb);
     const lineMat = new MeshBasicMaterial({ color: theme === "neon" ? 16723696 : 15917690 });
@@ -28559,6 +28655,10 @@ void main() {
     if (dashes) group.add(new Mesh(dashes, lineMat));
     const checks = new Mesh(checkered(track.pts[0], track.halfW * 0.96), new MeshBasicMaterial({ vertexColors: true }));
     group.add(checks);
+    if (track.open) {
+      const fin = new Mesh(checkered(track.pts[track.pts.length - 1], track.halfW * 0.96), new MeshBasicMaterial({ vertexColors: true }));
+      group.add(fin);
+    }
     const lim = track.halfW + track.grass;
     const wallColor = theme === "neon" ? 16723696 : theme === "snow" ? 12965092 : theme === "desert" ? 9067058 : 3818068;
     const wallMat = new MeshStandardMaterial({
@@ -28569,7 +28669,7 @@ void main() {
       emissiveIntensity: theme === "neon" ? 0.55 : 0
     });
     if (track.walls !== false) for (const side of [-1, 1]) {
-      const wall = new Mesh(wallRibbon(track.pts, side * lim, theme === "neon" ? 1.4 : 0.9), wallMat);
+      const wall = new Mesh(wallRibbon(track.pts, side * lim, theme === "neon" ? 1.4 : 0.9, closed), wallMat);
       wall.castShadow = true;
       wall.receiveShadow = true;
       group.add(wall);
@@ -28712,7 +28812,7 @@ void main() {
     });
   }
 
-  // 3d/js/drive.js
+  // js/drive.js
   function playerSteer(input2) {
     const sens = settings.data && settings.data.sensitivity || 1;
     const left = input2 && input2.down && input2.down("left") ? 1 : 0;
@@ -28870,7 +28970,7 @@ void main() {
     if (car.nitro < 0) car.nitro = 0;
   }
 
-  // 3d/js/ai.js
+  // js/ai.js
   function aiInput(car, track, dt, player, leagueId, weatherGrip, raceT) {
     const pers = RL.PERSONALITIES[car.ai.pers] || RL.PERSONALITIES.clean;
     const skill = car.skill || 0.85;
@@ -28955,7 +29055,7 @@ void main() {
     };
   }
 
-  // 3d/js/cars.js
+  // js/cars.js
   var SPECS = {
     Hatchback: { L: 3.7, W: 1.7, ride: 0.32, bodyH: 0.98, roof: 1.5, cabinRear: -0.85, cabinFront: 0.55, wing: 0 },
     Kei: { L: 3.2, W: 1.5, ride: 0.3, bodyH: 1.08, roof: 1.64, cabinRear: -0.72, cabinFront: 0.72, wing: 0 },
@@ -29285,7 +29385,7 @@ void main() {
     return def && def.cls || "Coupe";
   }
 
-  // 3d/js/wrecks.js
+  // js/wrecks.js
   var wrecks = {
     bits: [],
     lights: [],
@@ -29383,7 +29483,7 @@ void main() {
     }
   };
 
-  // 3d/js/heat.js
+  // js/heat.js
   var STAR_AT = [0, 72, 160, 270, 410, 580];
   var HEAT_MAX = 1e6;
   var HIDE_SEC = [0, 90, 120, 150, 180, 240];
@@ -29437,7 +29537,7 @@ void main() {
     return CRIME[kind] || 0;
   }
 
-  // 3d/js/sight.js
+  // js/sight.js
   var SIGHT = {
     range: 11,
     wind: 0.96,
@@ -29452,7 +29552,7 @@ void main() {
     return "hit";
   }
 
-  // 3d/js/foot.js
+  // js/foot.js
   var FEE_CAP = 380;
   var CHAIN = 12;
   var WINDUP = 0.62;
@@ -29767,14 +29867,15 @@ void main() {
     while (wanted2.thugs.length < n) {
       const mesh = buildCar("Coupe", { color: "#3a1420", rims: 0, decal: "none" }, {});
       gfx.world.add(mesh);
-      const ang = wanted2.thugs.length === 0 ? 0.6 : 2.4;
-      const x = player.x + Math.cos(ang) * 18;
-      const z = player.z + Math.sin(ang) * 18;
+      const h = player.h || 0;
+      const side = wanted2.thugs.length === 0 ? 14 : -14;
+      const x = player.x - Math.sin(h) * 140 + Math.cos(h) * side;
+      const z = player.z - Math.cos(h) * 140 - Math.sin(h) * side;
       wanted2.thugs.push({
         mesh,
         x,
         z,
-        h: ang + Math.PI,
+        h,
         vx: 0,
         vz: 0,
         speed: 0,
@@ -30038,7 +30139,7 @@ void main() {
     return out;
   }
 
-  // 3d/js/wanted.js
+  // js/wanted.js
   function copTarget(stars, heat) {
     if (stars <= 0) return 0;
     if (stars === 1) {
@@ -30047,7 +30148,7 @@ void main() {
     }
     return Math.min(5, stars);
   }
-  var COP_CAP = [0, 24, 31, 39, 48, 58];
+  var COP_CAP = [0, 22, 28, 33, 37, 41];
   function rankOf(role) {
     const xp = career.state && career.state.roleXp ? career.state.roleXp[role] || 0 : 0;
     const steps = [0, 40, 110, 200, 320];
@@ -30435,7 +30536,9 @@ void main() {
     _ensureCops() {
       const n = copTarget(this.stars, this.heat);
       const player = this.hub && this.hub.player;
-      while (this.cops.length < n && player) this._spawnCop(player, this.cops.length);
+      while (this.cops.length < n && player) {
+        if (!this._spawnCop(player, this.cops.length)) break;
+      }
       while (this.cops.length > n) {
         const c = this.cops.pop();
         if (c.officer && c.officer.mesh) {
@@ -30452,12 +30555,15 @@ void main() {
     _farSpot(player, index) {
       const city = this.hub && this.hub.city;
       const pitch = 86, half = 3, extent = half * pitch;
-      const minD = 90;
+      const minD = 120;
+      const fx = Math.sin(player.h || 0), fz = Math.cos(player.h || 0);
       let best = null;
       const consider = (x, z) => {
         if (!city || !city.isRoad(x, z)) return;
-        const d = Math.hypot(x - player.x, z - player.z);
+        const dx = x - player.x, dz = z - player.z;
+        const d = Math.hypot(dx, dz);
         if (d < minD) return;
+        if (dx * fx + dz * fz > -30) return;
         const score = d + (index * 13 + Math.round(x / 10) + Math.round(z / 7)) % 9 * 4;
         if (!best || score > best.score) best = { x, z, d, score };
       };
@@ -30469,29 +30575,24 @@ void main() {
           }
         }
       }
-      if (best) return best;
-      if (city && city.nearestRoad) {
-        const road = city.nearestRoad(player.x + minD, player.z - minD);
-        const d = Math.hypot(road.x - player.x, road.z - player.z);
-        return { x: road.x, z: road.z, d };
-      }
-      return { x: player.x + minD, z: player.z, d: minD };
+      return best && best.d >= minD ? best : null;
     },
     _spawnCop(player, index) {
+      const spot = this._farSpot(player, index);
+      if (!spot) return false;
       const mesh = buildCar("Coupe", { color: "#16315f", rims: 0, decal: "stripes", siren: true }, { lights: true });
       gfx.world.add(mesh);
-      const spot = this._farSpot(player, index);
       const stars = Math.max(1, Math.min(5, this.stars));
       const face = Math.atan2(player.x - spot.x, player.z - spot.z);
       const cop = blankVehicle({
         mesh,
         name: "Police",
         p: physFromStats({
-          topSpeed: 16 + stars * 7,
-          accel: 46 + stars * 3,
-          handling: 56,
-          grip: 68,
-          nitro: 24,
+          topSpeed: 12 + stars * 5,
+          accel: 40 + stars * 2,
+          handling: 52,
+          grip: 64,
+          nitro: 18,
           durability: 70
         }),
         x: spot.x,
@@ -30500,17 +30601,30 @@ void main() {
         nitro: 40
       });
       this.cops.push(cop);
+      return true;
     },
     _driveCops(dt, player, city) {
       const lead = 12 + this.stars * 2;
       const n = this.cops.length;
       this.cops.forEach((cop, i) => {
         if (cop.dismounted) return;
-        const ahead = i === 0 ? Math.min(18, lead) : Math.min(22, lead + 8);
-        const side = (i - (n - 1) / 2) * 5.5;
-        let tx = player.x + Math.sin(player.h) * ahead + Math.cos(player.h) * side;
-        let tz = player.z + Math.cos(player.h) * ahead - Math.sin(player.h) * side;
+        const fx = Math.sin(player.h), fz = Math.cos(player.h);
+        const rx = Math.cos(player.h), rz = -Math.sin(player.h);
+        const slot = i % 3;
+        let tx, tz;
+        if (slot === 0) {
+          tx = player.x + fx * 4;
+          tz = player.z + fz * 4;
+        } else if (slot === 1) {
+          tx = player.x + fx * Math.min(22, lead);
+          tz = player.z + fz * Math.min(22, lead);
+        } else {
+          const side = (i % 2 ? 1 : -1) * 6;
+          tx = player.x + fx * 10 + rx * side;
+          tz = player.z + fz * 10 + rz * side;
+        }
         const cap = COP_CAP[Math.min(5, Math.max(1, this.stars))] || COP_CAP[1];
+        const x0 = cop.x, z0 = cop.z;
         if (cop.stuckT > 1.05 && !cop.way) {
           const spin = (cop.unstuck || 0) % 4 * (Math.PI / 2);
           const ang = (cop.h || 0) + Math.PI + spin;
@@ -30538,8 +30652,16 @@ void main() {
           hasPerk: () => false
         });
         const hit = resolveCity(city, cop.x, cop.z, cop.vx, cop.vz, 1.15);
-        cop.x = hit.x;
-        cop.z = hit.z;
+        const maxStep = Math.max(cap, cop.p && cop.p.maxSpeed || cap) * dt + 0.08;
+        let dx = hit.x - x0, dz = hit.z - z0;
+        const moved = Math.hypot(dx, dz);
+        if (moved > maxStep && moved > 0) {
+          cop.x = x0 + dx / moved * maxStep;
+          cop.z = z0 + dz / moved * maxStep;
+        } else {
+          cop.x = hit.x;
+          cop.z = hit.z;
+        }
         cop.vx = hit.vx;
         cop.vz = hit.vz;
         cop.stuckT = cop.speed < 2 ? (cop.stuckT || 0) + dt : 0;
@@ -30599,6 +30721,10 @@ void main() {
       g.add(body, tail, rotor, light, aim);
       light.target = aim;
       g.userData = { rotor, light, aim, focus: { x: 0, z: 0 } };
+      const player = this.hub && this.hub.player;
+      const hx = player ? player.x - Math.sin(player.h || 0) * 160 : 0;
+      const hz = player ? player.z - Math.cos(player.h || 0) * 160 : 0;
+      g.position.set(hx, 26, hz);
       gfx.scene.add(g);
       this.heli = g;
       this.heliSearch = 0;
@@ -30627,7 +30753,8 @@ void main() {
       this.blockCd = 22;
       const player = this.hub.player;
       const city = this.hub.city;
-      const road = city.nearestRoad(player.x + Math.sin(player.h) * 42, player.z + Math.cos(player.h) * 42);
+      const road = city.nearestRoad(player.x + Math.sin(player.h) * 180, player.z + Math.cos(player.h) * 180);
+      if (Math.hypot(road.x - player.x, road.z - player.z) < 140) return;
       const rx = Math.cos(road.h), rz = -Math.sin(road.h);
       const mat = new MeshStandardMaterial({ color: 1855130, roughness: 0.5, metalness: 0.2 });
       const spots = [];
@@ -30649,7 +30776,8 @@ void main() {
       this.spikeCd = 18;
       const player = this.hub.player;
       const city = this.hub.city;
-      const road = city.nearestRoad(player.x + Math.sin(player.h) * 28, player.z + Math.cos(player.h) * 28);
+      const road = city.nearestRoad(player.x + Math.sin(player.h) * 160, player.z + Math.cos(player.h) * 160);
+      if (Math.hypot(road.x - player.x, road.z - player.z) < 120) return;
       const mesh = new Mesh(
         new BoxGeometry(12, 0.08, 1.2),
         new MeshStandardMaterial({ color: 15253834, emissive: 9071120, emissiveIntensity: 0.4, roughness: 0.45 })
@@ -30797,7 +30925,7 @@ void main() {
     }
   };
 
-  // 3d/js/roles.js
+  // js/roles.js
   var ROLE_ORDER = ["neutral", "criminal", "police"];
   var XP_STEPS = [0, 40, 110, 200, 320];
   var COOLDOWN = 6e4;
@@ -31187,7 +31315,7 @@ void main() {
     roles.revokeForWanted();
   };
 
-  // 3d/js/robbery.js
+  // js/robbery.js
   var TILL_MS = 9e4;
   var SHOPS = {
     shop: { name: "Shop", pay: 280, heat: 14 },
@@ -31261,7 +31389,7 @@ void main() {
     };
   }
 
-  // 3d/js/hub.js
+  // js/hub.js
   var hub = {
     active: false,
     player: null,
@@ -32240,7 +32368,7 @@ void main() {
     }
   };
 
-  // 3d/js/race.js
+  // js/race.js
   var race = {
     active: false,
     track: null,
@@ -32329,7 +32457,7 @@ void main() {
       if (cfg.nitro === false) player.nitro = 0;
       this.player = player;
       const solo = ["timetrial", "drift", "training", "ghost"].includes(cfg.kind);
-      const aiN = cfg.kind === "custom" ? Math.max(0, Math.min(8, cfg.aiCount == null ? 5 : cfg.aiCount | 0)) : solo ? 0 : 5;
+      const aiN = cfg.kind === "drag" ? 1 : cfg.kind === "custom" ? Math.max(0, Math.min(8, cfg.aiCount == null ? 5 : cfg.aiCount | 0)) : solo ? 0 : 5;
       this.cars.push(player);
       if (!solo && aiN > 0) {
         const pers = ["clean", "aggressive", "nitro", "clean", "aggressive"];
@@ -32417,9 +32545,20 @@ void main() {
       const tr = this.track;
       const row = Math.floor(slot / 2);
       const col = slot % 2;
+      const side = (col ? 1 : -1) * Math.min(tr.halfW * 0.42, 2.3);
+      if (tr.open) {
+        const p2 = tr.pts[0];
+        const back = 4 + row * 7;
+        car.x = p2.x - p2.tx * back + p2.nx * side;
+        car.z = p2.z - p2.tz * back + p2.nz * side;
+        car.h = Math.atan2(p2.tx, p2.tz);
+        car.y = p2.y || 0;
+        car.idx = 0;
+        car.lat = side;
+        return;
+      }
       const i = (tr.N - 8 - row * 5 + tr.N) % tr.N;
       const p = tr.pts[i];
-      const side = (col ? 1 : -1) * Math.min(tr.halfW * 0.42, 2.3);
       car.x = p.x + p.nx * side - p.tx * 1.5;
       car.z = p.z + p.nz * side - p.tz * 1.5;
       car.h = Math.atan2(p.tx, p.tz);
@@ -32876,7 +33015,7 @@ void main() {
     return { x: car.x, y: 0, z: car.z };
   }
 
-  // 3d/js/drag.js
+  // js/drag.js
   var GEAR_TOP = [0.2, 0.37, 0.55, 0.74, 1];
   var PERFECT = [0.9, 0.985];
   var drag = {
@@ -33234,7 +33373,7 @@ void main() {
     }
   };
 
-  // 3d/js/photo.js
+  // js/photo.js
   var photo = {
     active: false,
     yaw: 0.9,
@@ -33323,7 +33462,7 @@ void main() {
     }
   };
 
-  // 3d/js/tracks.js
+  // js/tracks.js
   var KEY = "redline_legends_3d_tracks_v1";
   var THEMES = ["city", "desert", "snow", "neon"];
   function ls() {
@@ -33402,7 +33541,7 @@ void main() {
     return def;
   }
 
-  // 3d/js/ui.js
+  // js/ui.js
   var $ = (id) => document.getElementById(id);
   var actions = {};
   var stack = [];
@@ -33734,7 +33873,7 @@ void main() {
   }
   function showHelp() {
     const clock = (n) => formatCooldown(hideSeconds(n));
-    open({ title: "How to Play", cls: "help-panel", render: () => `<ul class="help"><li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building's lot and press <kbd>E</kbd> to walk inside. The avenue itself is not a door. Talk to the person at the counter. The south door leaves. Downtown has the garage, race office, shop, dealership, and the bar. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway building is east. The tower outside it is the same room.</li><li><b>Heat:</b> stars do not stop at five. The board shows up to five star icons, then a count such as \u2605 x12. A nudge or a cone barely counts. Red lights, wrecks, smashed props, and holding a high speed do count. Stars do not fall while the police can see you. Break line of sight and stay hidden. The HUD shows a white cooldown: ` + clock(1) + " at one star, " + clock(5) + " at five, and " + clock(8) + " at eight. Past five, every extra star waits longer. Spotting you resets that clock. When it hits zero, one star drops. Kingpin trims the wait a little. Each new star adds bounty, and a higher star adds more. Running someone over, ramming a car, or wrecking one adds bounty too. Losing the police pays nothing and does not wipe it. The bounty stays until you are busted. In a city server, a cop can bust you and claim it. Cruisers start off screen, on a road, and drive to you. A stuck cruiser reverses. It does not pop in beside you. Past five stars the squad stays small enough to dodge.</li><li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> or <kbd>C</kbd> to steal it. The STEAL button does the same. Tiers have different speed and health. Circuit races and the drag strip always use the car you own. At a shop door, or at the counter inside, <kbd>C</kbd> robs the till instead.</li><li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. If a cop picks up a wanted star, they become Neutral immediately and cannot change roles for 5 minutes. The timer shows on screen and is stored in the save. Each role has its own rank. A criminal is a known face: shops, repairs, fuel, and the hospital cost 12% more, sales pay less, and heat falls slower. Kingpin waives that street tax.</li><li><b>On sight:</b> with no wanted stars, an officer outside the police station still shoots a criminal in view. The shot flashes, then fires at the spot you were standing. Move more than a step, take the far lane, break the line with a building, or pull into the station lot. The lot is a ceasefire so you can still change roles. The shot spends health. It does not add a star. Driving off refills that health.</li><li><b>Shops:</b> Walk into the parts shop, Quick Mart, the dealership, or Nitro Fuel. On foot, the lot is the door. Inside, walk up to the counter. <kbd>E</kbd> talks to the clerk. <kbd>C</kbd> at that counter, or at the door, takes the cash. Rob the register does the same. Away from a till, <kbd>C</kbd> still steals a car. Wanted stars go up, and the bounty under them goes up with the heat. The till stays empty for about a minute. <kbd>Q</kbd> gets you back in the car.</li><li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li><li><b>Camera:</b> <kbd>V</kbd>, the Cam button, or the touch CAM button cycles chase, cockpit, a front camera (the road ahead stays in the corner), and top-down. A label such as Camera: Chase [V] shows the one you just picked. Top-down follows you from above and stays above the roofs. Settings chooses north-up or car-up. Left and right steer the car, including on foot and on the touch pad. The front camera looks back at you, so the car can move the other way on the screen. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li><li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260, or a bit more if you are a known criminal. Blowing up during a chase counts as a bust.</li><li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li><li><b>Drag:</b> walk into the drag building or the tower and talk to the starter. Stage a drag puts you on the tree. Hold brake + gas, release the brake on green, then shift with Space or Shift. You can also stage from the strip apron. Perfect shifts are a real bonus.</li><li><b>Custom:</b> the Race Office opens a custom grid and the track editor. Export a share code to pass a layout around.</li><li><b>Streets:</b> parked rivals with a gold glow will race you point to point. Police players can intercept them instead.</li><li>Top 3 in all three league races unlocks the boss. Beat the boss to get promoted.</li><li><kbd>F</kbd> photo mode. <kbd>R</kbd> resets you to the road if you get stuck. <kbd>Esc</kbd> pauses.</li></ul>" });
+    open({ title: "How to Play", cls: "help-panel", render: () => `<ul class="help"><li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building's lot and press <kbd>E</kbd> to walk inside. The avenue itself is not a door. Talk to the person at the counter. The south door leaves. Downtown has the garage, race office, shop, dealership, and the bar. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway building is east. The tower outside it is the same room.</li><li><b>Heat:</b> stars do not stop at five. The board shows up to five star icons, then a count such as \u2605 x12. A nudge or a cone barely counts. Red lights, wrecks, smashed props, and holding a high speed do count. Stars do not fall while the police can see you. Break line of sight and stay hidden. The HUD shows a white cooldown: ` + clock(1) + " at one star, " + clock(5) + " at five, and " + clock(8) + " at eight. Past five, every extra star waits longer. Spotting you resets that clock. When it hits zero, one star drops. Kingpin trims the wait a little. Each new star adds bounty, and a higher star adds more. Running someone over, ramming a car, or wrecking one adds bounty too. Losing the police pays nothing and does not wipe it. The bounty stays until you are busted. In a city server, a cop can bust you and claim it. Cruisers start off screen, on a road, and drive to you. A stuck cruiser reverses. It does not pop in beside you. Past five stars the squad stays small enough to dodge.</li><li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> or <kbd>C</kbd> to steal it. The STEAL button does the same. Tiers have different speed and health. Circuit races and the drag strip always use the car you own. At a shop door, or at the counter inside, <kbd>C</kbd> robs the till instead.</li><li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. If a cop picks up a wanted star, they become Neutral immediately and cannot change roles for 5 minutes. The timer shows on screen and is stored in the save. Each role has its own rank. A criminal is a known face: shops, repairs, fuel, and the hospital cost 12% more, sales pay less, and heat falls slower. Kingpin waives that street tax.</li><li><b>On sight:</b> with no wanted stars, an officer outside the police station still shoots a criminal in view. The shot flashes, then fires at the spot you were standing. Move more than a step, take the far lane, break the line with a building, or pull into the station lot. The lot is a ceasefire so you can still change roles. The shot spends health. It does not add a star. Driving off refills that health.</li><li><b>Shops:</b> Walk into the parts shop, Quick Mart, the dealership, or Nitro Fuel. On foot, the lot is the door. Inside, walk up to the counter. <kbd>E</kbd> talks to the clerk. <kbd>C</kbd> at that counter, or at the door, takes the cash. Rob the register does the same. Away from a till, <kbd>C</kbd> still steals a car. Wanted stars go up, and the bounty under them goes up with the heat. The till stays empty for about a minute. <kbd>Q</kbd> gets you back in the car.</li><li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li><li><b>Camera:</b> <kbd>V</kbd>, the Cam button, or the touch CAM button cycles chase, cockpit, a front camera (the road ahead stays in the corner), and top-down. A label such as Camera: Chase [V] shows the one you just picked. Top-down follows you from above and stays above the roofs. Settings chooses north-up or car-up. Left and right steer the car, including on foot and on the touch pad. The front camera looks back at you, so the car can move the other way on the screen. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li><li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260, or a bit more if you are a known criminal. Blowing up during a chase counts as a bust.</li><li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li><li><b>Drag:</b> walk into the drag building or the tower and talk to the starter. A drag is a normal race on a flat straight: the same car, the same physics, the same HUD, and one opponent. Quarter mile is about 400 m. Half mile is about 800 m. The finish line is the far end. Gas, brake, and steer are unchanged. The strip apron stages the same race.</li><li><b>Custom:</b> the Race Office opens a custom grid and the track editor. Export a share code to pass a layout around.</li><li><b>Streets:</b> parked rivals with a gold glow will race you point to point. Police players can intercept them instead.</li><li>Top 3 in all three league races unlocks the boss. Beat the boss to get promoted.</li><li><kbd>F</kbd> photo mode. <kbd>R</kbd> resets you to the road if you get stuck. <kbd>Esc</kbd> pauses.</li></ul>" });
   }
   function showGarage(tab) {
     const v = {
@@ -34451,7 +34590,7 @@ void main() {
     el.textContent = "Redline Legends 3D failed to start: " + (err && err.message ? err.message : err);
   }
 
-  // 3d/js/editor.js
+  // js/editor.js
   var THEMES2 = ["city", "desert", "snow", "neon"];
   var editor = {
     active: false,
@@ -34757,7 +34896,7 @@ void main() {
     }
   };
 
-  // 3d/js/interior.js
+  // js/interior.js
   var REACH = 1.35;
   var RADIUS = 0.32;
   function esc(s) {
@@ -35033,7 +35172,7 @@ void main() {
     }
   };
 
-  // 3d/js/game.js
+  // js/game.js
   var $2 = (id) => document.getElementById(id);
   var STEP = 1 / 60;
   function escapeHud(s) {
@@ -35301,20 +35440,35 @@ void main() {
       this.weather = cfg.weather || "clear";
     },
     startDrag() {
-      if (interior.active) interior.leave({ silent: true });
-      ui.closeAll();
-      const strip = this.city.strip;
-      this._hideFreeRoam();
-      this.city.group.visible = true;
-      const tree = ensureTree(strip);
-      const cfg = { kind: "drag", league: career.state.league, title: "Quarter Mile", strip, tree, laps: 1 };
-      this.lastCfg = cfg;
-      drag.start(cfg, this.fx);
-      this.mode = "drag";
-      ui.setMode("drag");
-      this.weather = gfx.night > 0.4 ? "clear" : this.weather;
-      audio.startMusic("drag");
-      audio.startEngine();
+      const prefs = career.state && career.state.dragPrefs || {};
+      const half = !!prefs.half;
+      const league = career.state && career.state.league || 1;
+      const table = { 1: 200, 2: 450, 3: 900, 4: 1600 };
+      const stake = prefs.stake === false ? 0 : table[league] || 200;
+      if (stake && career.state && career.state.money < stake) {
+        ui.toast("Not enough cash for that stake");
+        return;
+      }
+      if (stake && career.state) {
+        career.addMoney(-stake);
+        career.state.dragStake = { amount: stake, settled: false };
+        career.save();
+      }
+      this.startRace({
+        kind: "drag",
+        track: half ? "half" : "quarter",
+        laps: 1,
+        aiCount: 1,
+        league,
+        title: half ? "Half Mile" : "Quarter Mile",
+        weather: "clear",
+        time: "day",
+        damage: true,
+        nitro: true,
+        traffic: false,
+        collisions: true,
+        stake
+      });
     },
     _again(cfg) {
       if (cfg.kind === "drag") this.startDrag();
@@ -35879,40 +36033,8 @@ void main() {
       if (ui.openStory) ui.openStory("intro");
     }, 60);
   }
-  var treeGroup = null;
-  function ensureTree(strip) {
-    if (treeGroup) return treeGroup.userData.lights;
-    const g = new Group();
-    const pole = new MeshStandardMaterial({ color: 1118481, roughness: 0.4, metalness: 0.6 });
-    const treeZ = strip.z0 + 18;
-    const post = new Mesh(new BoxGeometry(0.4, 5.5, 0.4), pole);
-    post.position.set(strip.x + 1.4, 2.7, treeZ);
-    g.add(post);
-    const lights = [];
-    const cols = [16777215, 16762938, 16762938, 16762938, 4063082, 16722474];
-    cols.forEach((c, i) => {
-      const mat = new MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.1 });
-      const bulb = new Mesh(new SphereGeometry(0.26, 10, 8), mat);
-      bulb.position.set(strip.x + 1.4, 4.6 - i * 0.55, treeZ);
-      g.add(bulb);
-      lights.push(mat);
-    });
-    const fin = new Mesh(new BoxGeometry(20, 0.4, 0.4), pole);
-    fin.position.set(strip.x, 4.5, strip.z0 + 8 + RL.DRAG.distance);
-    g.add(fin);
-    const banner = new Mesh(
-      new BoxGeometry(18, 1.2, 0.2),
-      new MeshStandardMaterial({ color: 1118481, emissive: 16723696, emissiveIntensity: 1.2 })
-    );
-    banner.position.set(strip.x, 5.4, strip.z0 + 8 + RL.DRAG.distance);
-    g.add(banner);
-    gfx.world.add(g);
-    g.userData.lights = lights;
-    treeGroup = g;
-    return lights;
-  }
 
-  // 3d/js/main.js
+  // js/main.js
   var STEP2 = 1 / 60;
   var MAX_FRAME = 0.25;
   var MAX_STEPS = 15;

@@ -27,8 +27,8 @@ function copTarget(stars, heat) {
   }
   return Math.min(5, stars);
 }
-/* m/s. A stock Pip is about 38 and a league-1 coupe about 44, so low-star units are slower than a decent car. */
-const COP_CAP = [0, 24, 31, 39, 48, 58];
+/* m/s. A stock Pip is about 38 and a league-1 coupe about 44. Every star stays under that so a hard turn still opens a gap. */
+const COP_CAP = [0, 22, 28, 33, 37, 41];
 
 function rankOf(role) {
   const xp = career.state && career.state.roleXp ? career.state.roleXp[role] || 0 : 0;
@@ -421,7 +421,9 @@ export const wanted = {
   _ensureCops() {
     const n = copTarget(this.stars, this.heat);
     const player = this.hub && this.hub.player;
-    while (this.cops.length < n && player) this._spawnCop(player, this.cops.length);
+    while (this.cops.length < n && player) {
+      if (!this._spawnCop(player, this.cops.length)) break;
+    }
     while (this.cops.length > n) {
       const c = this.cops.pop();
       if (c.officer && c.officer.mesh) {
@@ -436,12 +438,16 @@ export const wanted = {
   _farSpot(player, index) {
     const city = this.hub && this.hub.city;
     const pitch = 86, half = 3, extent = half * pitch;
-    const minD = 90;
+    const minD = 120;
+    const fx = Math.sin(player.h || 0), fz = Math.cos(player.h || 0);
     let best = null;
     const consider = (x, z) => {
       if (!city || !city.isRoad(x, z)) return;
-      const d = Math.hypot(x - player.x, z - player.z);
+      const dx = x - player.x, dz = z - player.z;
+      const d = Math.hypot(dx, dz);
       if (d < minD) return;
+      /* Chase cameras look forward. A spawn has to be behind the car. */
+      if (dx * fx + dz * fz > -30) return;
       const score = d + ((index * 13 + Math.round(x / 10) + Math.round(z / 7)) % 9) * 4;
       if (!best || score > best.score) best = { x: x, z: z, d: d, score: score };
     };
@@ -453,29 +459,24 @@ export const wanted = {
         }
       }
     }
-    if (best) return best;
-    if (city && city.nearestRoad) {
-      const road = city.nearestRoad(player.x + minD, player.z - minD);
-      const d = Math.hypot(road.x - player.x, road.z - player.z);
-      return { x: road.x, z: road.z, d: d };
-    }
-    return { x: player.x + minD, z: player.z, d: minD };
+    return best && best.d >= minD ? best : null;
   },
 
   _spawnCop(player, index) {
+    const spot = this._farSpot(player, index);
+    if (!spot) return false;
     const mesh = buildCar('Coupe', { color: '#16315f', rims: 0, decal: 'stripes', siren: true }, { lights: true });
     gfx.world.add(mesh);
-    const spot = this._farSpot(player, index);
     const stars = Math.max(1, Math.min(5, this.stars));
     const face = Math.atan2(player.x - spot.x, player.z - spot.z);
     const cop = blankVehicle({
       mesh, name: 'Police',
       p: physFromStats({
-        topSpeed: 16 + stars * 7,
-        accel: 46 + stars * 3,
-        handling: 56,
-        grip: 68,
-        nitro: 24,
+        topSpeed: 12 + stars * 5,
+        accel: 40 + stars * 2,
+        handling: 52,
+        grip: 64,
+        nitro: 18,
         durability: 70
       }),
       x: spot.x,
@@ -484,6 +485,7 @@ export const wanted = {
       nitro: 40
     });
     this.cops.push(cop);
+    return true;
   },
 
   _driveCops(dt, player, city) {
@@ -491,11 +493,23 @@ export const wanted = {
     const n = this.cops.length;
     this.cops.forEach((cop, i) => {
       if (cop.dismounted) return;
-      const ahead = i === 0 ? Math.min(18, lead) : Math.min(22, lead + 8);
-      const side = (i - (n - 1) / 2) * 5.5;
-      let tx = player.x + Math.sin(player.h) * ahead + Math.cos(player.h) * side;
-      let tz = player.z + Math.cos(player.h) * ahead - Math.sin(player.h) * side;
+      const fx = Math.sin(player.h), fz = Math.cos(player.h);
+      const rx = Math.cos(player.h), rz = -Math.sin(player.h);
+      const slot = i % 3;
+      let tx, tz;
+      if (slot === 0) {
+        tx = player.x + fx * 4;
+        tz = player.z + fz * 4;
+      } else if (slot === 1) {
+        tx = player.x + fx * Math.min(22, lead);
+        tz = player.z + fz * Math.min(22, lead);
+      } else {
+        const side = (i % 2 ? 1 : -1) * 6;
+        tx = player.x + fx * 10 + rx * side;
+        tz = player.z + fz * 10 + rz * side;
+      }
       const cap = COP_CAP[Math.min(5, Math.max(1, this.stars))] || COP_CAP[1];
+      const x0 = cop.x, z0 = cop.z;
       if (cop.stuckT > 1.05 && !cop.way) {
         const spin = ((cop.unstuck || 0) % 4) * (Math.PI / 2);
         const ang = (cop.h || 0) + Math.PI + spin;
@@ -521,7 +535,16 @@ export const wanted = {
         weatherGrip: 1, mods: { steerResp: 10, driftGrip: 1.8, driftCharge: 8, nitroBurn: 16, draft: 1 }, hasPerk: () => false
       });
       const hit = resolveCity(city, cop.x, cop.z, cop.vx, cop.vz, 1.15);
-      cop.x = hit.x; cop.z = hit.z; cop.vx = hit.vx; cop.vz = hit.vz;
+      const maxStep = Math.max(cap, cop.p && cop.p.maxSpeed || cap) * dt + 0.08;
+      let dx = hit.x - x0, dz = hit.z - z0;
+      const moved = Math.hypot(dx, dz);
+      if (moved > maxStep && moved > 0) {
+        cop.x = x0 + dx / moved * maxStep;
+        cop.z = z0 + dz / moved * maxStep;
+      } else {
+        cop.x = hit.x; cop.z = hit.z;
+      }
+      cop.vx = hit.vx; cop.vz = hit.vz;
       cop.stuckT = cop.speed < 2 ? (cop.stuckT || 0) + dt : 0;
       cop.hitCd = Math.max(0, (cop.hitCd || 0) - dt);
       const gap = Math.hypot(cop.x - player.x, cop.z - player.z);
@@ -579,6 +602,10 @@ export const wanted = {
     g.add(body, tail, rotor, light, aim);
     light.target = aim;
     g.userData = { rotor, light, aim, focus: { x: 0, z: 0 } };
+    const player = this.hub && this.hub.player;
+    const hx = player ? player.x - Math.sin(player.h || 0) * 160 : 0;
+    const hz = player ? player.z - Math.cos(player.h || 0) * 160 : 0;
+    g.position.set(hx, 26, hz);
     gfx.scene.add(g);
     this.heli = g;
     this.heliSearch = 0;
@@ -608,7 +635,8 @@ export const wanted = {
     this.blockCd = 22;
     const player = this.hub.player;
     const city = this.hub.city;
-    const road = city.nearestRoad(player.x + Math.sin(player.h) * 42, player.z + Math.cos(player.h) * 42);
+    const road = city.nearestRoad(player.x + Math.sin(player.h) * 180, player.z + Math.cos(player.h) * 180);
+    if (Math.hypot(road.x - player.x, road.z - player.z) < 140) return;
     const rx = Math.cos(road.h), rz = -Math.sin(road.h);
     const mat = new THREE.MeshStandardMaterial({ color: 0x1c4e9a, roughness: 0.5, metalness: 0.2 });
     const spots = [];
@@ -631,7 +659,8 @@ export const wanted = {
     this.spikeCd = 18;
     const player = this.hub.player;
     const city = this.hub.city;
-    const road = city.nearestRoad(player.x + Math.sin(player.h) * 28, player.z + Math.cos(player.h) * 28);
+    const road = city.nearestRoad(player.x + Math.sin(player.h) * 160, player.z + Math.cos(player.h) * 160);
+    if (Math.hypot(road.x - player.x, road.z - player.z) < 120) return;
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(12, 0.08, 1.2),
       new THREE.MeshStandardMaterial({ color: 0xe8c14a, emissive: 0x8a6a10, emissiveIntensity: 0.4, roughness: 0.45 })

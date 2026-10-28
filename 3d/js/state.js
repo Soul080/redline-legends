@@ -529,11 +529,18 @@ export const career = {
       xp = 40 + (res.cleanLaps || 0) * 25 + Math.min(150, (res.drift || 0) / 40);
     } else if (cfg.kind === 'drag') {
       const won = pos === 1 && !res.foul;
-      money = mult * (won ? 0.85 : 0.18);
+      money = mult * (won ? 0.35 : 0.08);
       xp = (70 + L.id * 35) * (won ? 1.35 : 0.4);
-      money += (res.perfectShifts || 0) * 50;
-      if (res.foul) notes.push('Red light — the win doesn\'t count.');
-      if ((res.perfectShifts || 0) >= 3) notes.push('Clean shifts. The gearbox noticed.');
+      const stake = s.dragStake;
+      if (stake && !stake.settled) {
+        stake.settled = true;
+        if (won && stake.amount) {
+          const pay = Math.round(stake.amount * 2);
+          this.addMoney(pay);
+          notes.push('Stake paid $' + pay);
+        } else if (stake.amount) notes.push('Stake lost');
+        s.dragStake = null;
+      }
     } else if (cfg.kind === 'custom') {
       const diff = cfg.aiDiff || 1;
       const won = pos === 1;

@@ -114,7 +114,12 @@ RL.TRACKS = {
   spiral: { name: 'Midnight Spiral', theme: 'neon', width: 130, grass: 40, weather: ['rain', 'clear'], times: ['night'],
     pts: [[400, 400], [1500, 250], [2400, 500], [2500, 1300], [1800, 1800], [900, 1700], [1300, 1200], [1900, 1100], [1700, 700], [800, 800], [300, 1100]] },
   oval: { name: 'Training Oval', theme: 'city', width: 160, grass: 70, weather: ['clear'], times: ['day'],
-    pts: [[400, 400], [1600, 400], [1900, 700], [1600, 1000], [400, 1000], [100, 700]] }
+    pts: [[400, 400], [1600, 400], [1900, 700], [1600, 1000], [400, 1000], [100, 700]] },
+  /* Open straights. The finish line is the far end. 1 design pixel is 0.2 m in 3D. */
+  quarter: { name: 'Quarter Mile', theme: 'city', width: 200, grass: 40, open: true, weather: ['clear'], times: ['day', 'night'],
+    pts: [[100, 500], [600, 500], [1100, 500], [1600, 500], [2100, 500]] },
+  half: { name: 'Half Mile', theme: 'city', width: 200, grass: 40, open: true, weather: ['clear'], times: ['day', 'night'],
+    pts: [[100, 500], [600, 500], [1100, 500], [1600, 500], [2100, 500], [2600, 500], [3100, 500], [3600, 500], [4100, 500]] }
 };
 
 /* ---------- Difficulty (Settings, default Normal). Applied when a race starts. ---------- */

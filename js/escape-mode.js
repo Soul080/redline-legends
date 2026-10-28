@@ -368,9 +368,14 @@
       if (w.tiles[ty * N + tx] !== 1 && w.tiles[ty * N + tx] !== 4) continue;
       const x = tx * TILE + TILE / 2, y = ty * TILE + TILE / 2;
       const d = Math.hypot(x - from.x, y - from.y);
-      if (d >= minDist && d <= minDist + 320) { spot = { x: x, y: y }; break; }
+      if (d >= minDist && d <= minDist + 420) { spot = { x: x, y: y }; break; }
     }
-    if (!spot) spot = { x: clamp(from.x + minDist, TILE * 3, WORLD - TILE * 3), y: clamp(from.y, TILE * 3, WORLD - TILE * 3) };
+    if (!spot) {
+      const tryX = clamp(from.x - Math.cos(from.h || 0) * minDist, TILE * 3, WORLD - TILE * 3);
+      const tryY = clamp(from.y - Math.sin(from.h || 0) * minDist, TILE * 3, WORLD - TILE * 3);
+      if (Math.hypot(tryX - from.x, tryY - from.y) >= minDist) spot = { x: tryX, y: tryY };
+    }
+    if (!spot || Math.hypot(spot.x - from.x, spot.y - from.y) < minDist) return null;
     const c = reuse || makeCop(kind, spot.x, spot.y);
     const spec = COPS[kind] || COPS.cruiser;
     c.x = spot.x; c.y = spot.y; c.vx = 0; c.vy = 0; c.dead = false; c.ttl = 0;
@@ -416,7 +421,7 @@
     scatterCash(w, 12);
     if (!opts.noCops) {
       const want = roster(0);
-      for (let i = 0; i < want.length; i++) spawnCop(w, want[i], 280 + i * 50);
+      for (let i = 0; i < want.length; i++) spawnCop(w, want[i], 1100);
     }
     return w;
   }
@@ -595,17 +600,20 @@
   function syncRoster(w) {
     if (w.holdRoster) return;
     const want = roster(w.t);
-    while (w.cops.length < want.length) spawnCop(w, want[w.cops.length], 300);
+    let guard = 0;
+    while (w.cops.length < want.length && guard++ < 8) {
+      if (!spawnCop(w, want[w.cops.length], 1100)) break;
+    }
     for (let i = 0; i < w.cops.length; i++) {
       const c = w.cops[i];
-      if (c.dead && c.ttl <= 0) spawnCop(w, want[Math.min(i, want.length - 1)], 640, c);
+      if (c.dead && c.ttl <= 0) spawnCop(w, want[Math.min(i, want.length - 1)], 1100, c);
     }
   }
   function spawnHazard(w, kind) {
     const p = w.player;
     const fx = Math.cos(p.h), fy = Math.sin(p.h);
     const sx = -fy, sy = fx;
-    const dist = kind === 'block' ? 260 : 210;
+    const dist = kind === 'block' ? 1200 : 1100;
     const x = clamp(p.x + fx * dist, TILE * 2, WORLD - TILE * 2);
     const y = clamp(p.y + fy * dist, TILE * 2, WORLD - TILE * 2);
     if (kind === 'block') {

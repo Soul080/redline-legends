@@ -428,7 +428,7 @@ export function buildDistricts(api) {
     }
     landmarks.push({
       id: 'tower', name: 'Dragway Tower', x: tower.x, z: tower.z, r: 14,
-      text: 'Christmas tree, timing booth, and a board of ET records that still has blank lines.'
+      text: 'The tower opens the same straight as the dragway. Quarter mile or half mile, finish line at the far end.'
     });
     info.dragway.buildings += 4;
     info.dragway.pois.push('drag');

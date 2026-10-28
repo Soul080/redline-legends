@@ -98,7 +98,7 @@ export const race = {
     if (cfg.nitro === false) player.nitro = 0;
     this.player = player;
     const solo = ['timetrial', 'drift', 'training', 'ghost'].includes(cfg.kind);
-    const aiN = cfg.kind === 'custom' ? Math.max(0, Math.min(8, cfg.aiCount == null ? 5 : (cfg.aiCount | 0))) : (solo ? 0 : 5);
+    const aiN = cfg.kind === 'drag' ? 1 : (cfg.kind === 'custom' ? Math.max(0, Math.min(8, cfg.aiCount == null ? 5 : (cfg.aiCount | 0))) : (solo ? 0 : 5));
     this.cars.push(player);
     if (!solo && aiN > 0) {
       const pers = ['clean', 'aggressive', 'nitro', 'clean', 'aggressive'];
@@ -181,9 +181,20 @@ export const race = {
     const tr = this.track;
     const row = Math.floor(slot / 2);
     const col = slot % 2;
+    const side = (col ? 1 : -1) * Math.min(tr.halfW * 0.42, 2.3);
+    if (tr.open) {
+      const p = tr.pts[0];
+      const back = 4 + row * 7;
+      car.x = p.x - p.tx * back + p.nx * side;
+      car.z = p.z - p.tz * back + p.nz * side;
+      car.h = Math.atan2(p.tx, p.tz);
+      car.y = p.y || 0;
+      car.idx = 0;
+      car.lat = side;
+      return;
+    }
     const i = (tr.N - 8 - row * 5 + tr.N) % tr.N;
     const p = tr.pts[i];
-    const side = (col ? 1 : -1) * Math.min(tr.halfW * 0.42, 2.3);
     car.x = p.x + p.nx * side - p.tx * 1.5;
     car.z = p.z + p.nz * side - p.tz * 1.5;
     car.h = Math.atan2(p.tx, p.tz);

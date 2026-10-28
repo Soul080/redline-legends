@@ -158,21 +158,26 @@ RL.Wanted = (function () {
   }
   function aimPoint(i, p, n, canSee, cop) {
     if (!canSee) return { x: cop.lastX, y: cop.lastY, vx: 0, vy: 0 };
-    const lead = (RL.Pursuit.profile(n).predict || 0.2) * Math.abs(p.speed || 0);
-    let ax = p.x + Math.cos(p.h || 0) * lead;
-    let ay = p.y + Math.sin(p.h || 0) * lead;
-    if (n >= 4 && i % 3 === 1) {
-      ax = p.x + Math.cos(p.h || 0) * (110 + n * 16);
-      ay = p.y + Math.sin(p.h || 0) * (110 + n * 16);
-    } else if (n >= 4 && i % 3 === 2) {
-      const nx = -Math.sin(p.h || 0), ny = Math.cos(p.h || 0);
-      ax = p.x + nx * 42 + Math.cos(p.h || 0) * 50;
-      ay = p.y + ny * 42 + Math.sin(p.h || 0) * 50;
+    const h = p.h || 0;
+    const fx = Math.cos(h), fy = Math.sin(h);
+    const nx = -fy, ny = fx;
+    const slot = i % 3;
+    let ax, ay;
+    if (slot === 0) {
+      ax = p.x + fx * 18;
+      ay = p.y + fy * 18;
+    } else if (slot === 1) {
+      ax = p.x + fx * (70 + n * 8);
+      ay = p.y + fy * (70 + n * 8);
+    } else {
+      const side = (i % 2 ? 1 : -1) * (32 + n * 3);
+      ax = p.x + nx * side + fx * 36;
+      ay = p.y + ny * side + fy * 36;
     }
     return { x: ax, y: ay, vx: 0, vy: 0 };
   }
-  /* Far enough to start outside a normal view, and never on the player's tile. */
-  const SPAWN_MIN = 560;
+  /* Far enough to start outside a desktop view at the widest zoom. */
+  const SPAWN_MIN = 1400;
   function farSpawn(p, index) {
     const m = RL.CityMap;
     const T = 40;
@@ -203,13 +208,14 @@ RL.Wanted = (function () {
         }
       }
     }
-    return far || { x: p.x + SPAWN_MIN, y: p.y, d: SPAWN_MIN };
+    return far && far.d >= SPAWN_MIN ? far : null;
   }
   function ensureCops(p) {
     const n = stars();
     const need = RL.Pursuit.countFor(n);
     while (cops.length < need) {
       const spot = farSpawn(p, cops.length);
+      if (!spot) break;
       const face = Math.atan2(p.y - spot.y, p.x - spot.x);
       cops.push({
         x: spot.x, y: spot.y, h: face, speed: 40,
@@ -224,7 +230,10 @@ RL.Wanted = (function () {
     } else blocks = [];
     if (n >= 5) {
       if (!spikes.length || passed(p, spikes[0])) placeSpikes(p);
-      if (!heli) heli = { x: p.x, y: p.y - 80 };
+      if (!heli) {
+        const hdg = p.h || 0;
+        heli = { x: p.x - Math.cos(hdg) * 1600, y: p.y - Math.sin(hdg) * 1600 };
+      }
     } else { spikes = []; heli = null; }
   }
   function passed(p, obj) {
@@ -233,9 +242,18 @@ RL.Wanted = (function () {
     const forward = dx * Math.cos(p.h || 0) + dy * Math.sin(p.h || 0);
     return forward < -80;
   }
+  function roadAhead(p, minD) {
+    const h = p.h || 0;
+    for (let d = minD; d <= minD + 700; d += 40) {
+      const x = p.x + Math.cos(h) * d, y = p.y + Math.sin(h) * d;
+      if (RL.Drive && RL.Drive.limitAt(x, y) && !RL.Hub.blocked(x, y, 16) && Math.hypot(x - p.x, y - p.y) >= minD) return { x: x, y: y };
+    }
+    return null;
+  }
   function placeBlock(p) {
     const h = p.h || 0;
-    const spot = roadNear(p.x + Math.cos(h) * 460, p.y + Math.sin(h) * 460, h, false);
+    const spot = roadAhead(p, 1500);
+    if (!spot) return;
     const nx = -Math.sin(h), ny = Math.cos(h);
     blocks = [
       { x: spot.x + nx * 18, y: spot.y + ny * 18, h: h + Math.PI / 2 },
@@ -244,7 +262,8 @@ RL.Wanted = (function () {
   }
   function placeSpikes(p) {
     const h = p.h || 0;
-    const spot = roadNear(p.x + Math.cos(h) * 320, p.y + Math.sin(h) * 320, h, false);
+    const spot = roadAhead(p, 1500);
+    if (!spot) return;
     spikes = [{ x: spot.x, y: spot.y, h: h + Math.PI / 2, w: 70 }];
   }
   function hurtPlayer(p, dmg) {

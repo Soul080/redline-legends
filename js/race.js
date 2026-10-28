@@ -24,7 +24,7 @@ RL.Race = (function () {
     const def = resolveDef(key);
     if (!def || !def.pts || def.pts.length < 3) throw new Error('Unknown track: ' + (typeof key === 'string' ? key : (key && key.name) || '?'));
     if (!RL.Tracks || !RL.Tracks.sampleLoop) throw new Error('Track library failed to load');
-    const sampled = RL.Tracks.sampleLoop(def.pts, reverse);
+    const sampled = def.open && RL.Tracks.sampleOpen ? RL.Tracks.sampleOpen(def.pts) : RL.Tracks.sampleLoop(def.pts, reverse);
     const pad = 320;
     const id = (typeof key === 'string' && key) || def.id || 'custom';
     const tr = {
@@ -33,7 +33,7 @@ RL.Race = (function () {
       width: def.width, grass: def.grass != null ? def.grass : 50,
       minX: sampled.minX - pad, minY: sampled.minY - pad,
       w: (sampled.maxX - sampled.minX) + pad * 2, h: (sampled.maxY - sampled.minY) + pad * 2,
-      cps: sampled.cps
+      cps: sampled.cps, open: !!def.open, finishAt: sampled.finishAt || Math.max(1, sampled.N - 3)
     };
     prerender(tr);
     return tr;
@@ -50,7 +50,10 @@ RL.Race = (function () {
       g.fillStyle = i % 2 ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.06)';
       g.fillRect(tr.minX + Math.random() * tr.w, tr.minY + Math.random() * tr.h, 3 + Math.random() * 6, 3 + Math.random() * 6);
     }
-    const path = () => { g.beginPath(); tr.pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y))); g.closePath(); };
+    const path = () => {
+      g.beginPath(); tr.pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
+      if (!tr.open) g.closePath();
+    };
     g.lineJoin = 'round'; g.lineCap = 'round';
     const outer = tr.width + tr.grass * 2;
     const wallsOn = !tr.def || tr.def.walls !== false;
@@ -138,12 +141,26 @@ RL.Race = (function () {
       cpIdx: 0, timePen: 0, wrecked: false, invuln: 0
     }, o);
   }
+  function aheadPt(tr, idx, k) {
+    const N = tr.N;
+    const i = tr.open ? Math.max(0, Math.min(N - 1, (idx || 0) + k)) : (((idx || 0) + k) % N + N) % N;
+    return tr.pts[i];
+  }
   function placeOnGrid(car, slot) {
     const tr = R.track, row = Math.floor(slot / 2), col = slot % 2;
+    const side = (col ? 1 : -1) * tr.width * 0.22;
+    if (tr.open) {
+      const p = tr.pts[0];
+      const back = 28 + row * 36;
+      car.x = p.x - p.tx * back + p.nx * side;
+      car.y = p.y - p.ty * back + p.ny * side;
+      car.h = Math.atan2(p.ty, p.tx);
+      car.idx = 0;
+      return;
+    }
     let i = (tr.N - 4 - row * 6 + tr.N) % tr.N;
     if (i < 0) i += tr.N;
     const p = tr.pts[i];
-    const side = (col ? 1 : -1) * tr.width * 0.22;
     car.x = p.x + p.nx * side; car.y = p.y + p.ny * side; car.h = Math.atan2(p.ty, p.tx); car.idx = i;
   }
 
@@ -165,7 +182,7 @@ RL.Race = (function () {
     if (cfg.nitro === false) player.nitro = 0;
     else if (RL.hasPerk('double_tank')) player.nitro = 100;
     R.player = player;
-    const customAI = cfg.kind === 'custom' ? RL.clamp(cfg.aiCount | 0, 0, 11) : null;
+    const customAI = cfg.kind === 'custom' ? RL.clamp(cfg.aiCount | 0, 0, 11) : (cfg.kind === 'drag' ? 1 : null);
     const solo = ['timetrial', 'drift', 'training', 'ghost', 'testdrive'].includes(cfg.kind) || customAI === 0;
     R.cars.push(player);
     R.tauntCount = 0; R.tauntLock = 0; R.banterOpen = false; R.finalBanter = false;
@@ -276,14 +293,30 @@ RL.Race = (function () {
   /* ================= TRACK QUERIES ================= */
   function updateTrackPos(c) {
     const tr = R.track, N = tr.N;
-    let best = 1e18, bi = c.idx;
-    for (let k = -12; k <= 30; k++) {
-      const i = (c.idx + k + N) % N, p = tr.pts[i], d = (p.x - c.x) ** 2 + (p.y - c.y) ** 2;
-      if (d < best) { best = d; bi = i; }
+    let best = 1e18, bi = c.idx || 0;
+    if (tr.open) {
+      const from = Math.max(0, bi - 10), to = Math.min(N - 1, bi + 28);
+      for (let i = from; i <= to; i++) {
+        const p = tr.pts[i], d = (p.x - c.x) ** 2 + (p.y - c.y) ** 2;
+        if (d < best) { best = d; bi = i; }
+      }
+    } else {
+      for (let k = -12; k <= 30; k++) {
+        const i = (c.idx + k + N) % N, p = tr.pts[i], d = (p.x - c.x) ** 2 + (p.y - c.y) ** 2;
+        if (d < best) { best = d; bi = i; }
+      }
     }
     c.idx = bi;
     const p = tr.pts[bi];
     c.lat = (c.x - p.x) * p.nx + (c.y - p.y) * p.ny;
+    if (tr.open) {
+      if (bi >= (tr.finishAt || N - 3) && (c.lapsDone || 0) < (R.cfg.laps || 1)) {
+        c.lapsDone = R.cfg.laps || 1;
+        lapCompleted(c);
+      }
+      c.progress = c.finished ? 1e9 - c.finishTime : bi;
+      return;
+    }
     // checkpoint / lap logic
     const win = Math.floor(N * 0.12);
     if (c.nextCp === 0) {
@@ -562,7 +595,7 @@ RL.Race = (function () {
     const horizon = Math.min(N - 2, Math.round(look * 1.7));
     let peak = 0, peakSign = 0, peakAt = look;
     for (let k = 2; k <= horizon; k += 2) {
-      const q = tr.pts[(c.idx + k) % N], a = Math.abs(q.curv);
+      const q = aheadPt(tr, c.idx, k), a = Math.abs(q.curv);
       if (a > peak) { peak = a; peakSign = Math.sign(q.curv) || peakSign; peakAt = k; }
     }
     const here = Math.abs(tr.pts[c.idx].curv);
@@ -717,7 +750,7 @@ RL.Race = (function () {
       used = RL.clamp(ai.bossOff, -limit, limit);
     }
     const lookUse = Math.max(6, Math.round(scan.look * (0.4 + c.drive * 0.24)));
-    const tp = tr.pts[(c.idx + lookUse) % N];
+    const tp = aheadPt(tr, c.idx, lookUse);
     const tx = tp.x + tp.nx * used, ty = tp.y + tp.ny * used;
     let d = angDiff(Math.atan2(ty - c.y, tx - c.x), c.h);
     if (Math.abs(d) > 0.6) target *= RL.clamp(1 - (Math.abs(d) - 0.6) * 0.5, 0.5, 1);

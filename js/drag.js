@@ -270,12 +270,10 @@ RL.Drag = (function () {
       title: '⏱ Redline Dragway',
       render: () => {
         const car = G.currentCar(), st = G.carStats(car), def = G.carDef(car.id);
-        const dist = p.half ? RL.DragSim.HALF : RL.DragSim.QUARTER;
-        const est = RL.DragSim.race({ stats: st, setup: setupOf(car), driver: 'perfect', skill: 0.9, distance: dist });
         const stake = p.stake ? RL.DragRules.stakeFor(Math.max(s.league, 1)) : 0;
-        let h = '<p>Hold <b>gas and brake</b> together for launch control. Release the brake to start the tree, then stay in the throttle. Shift on the light: green is good, the flash is perfect, red is late. <b>N</b> or Shift is nitro. <b>Q</b>, <b>E</b>, or Space shifts.</p>';
+        let h = '<p>A drag is a normal race on a flat straight. Gas, brake, and steer are the same as every other race. The same car, the same top speed, and the same opponent. The finish line is the far end. Quarter mile is about 400 m. Half mile is about 800 m.</p>';
         h += '<p class="small">' + def.name + ' · accel ' + st.accel + ' · top ' + st.topSpeed + ' · grip ' + st.grip + ' · nitro ' + st.nitro + '</p>';
-        h += '<p class="small">Perfect-launch window ' + RL.DragSim.SWEET[0] + '–' + RL.DragSim.SWEET[1] + ' rpm. Estimated perfect ET <b class="hl">' + (est.et ? est.et.toFixed(2) + 's' : '--') + '</b> · trap ' + est.trap + ' km/h · ' + (p.half ? '1/2 mile' : '1/4 mile') + '</p>';
+        h += '<p class="small">' + (p.half ? 'Half mile' : 'Quarter mile') + '. Whoever is ahead at the stripe wins.</p>';
         h += '<div class="row">';
         h += '<button data-act="dist" data-arg="0" class="' + (p.half ? '' : 'on') + '">1/4 mile</button>';
         h += '<button data-act="dist" data-arg="1" class="' + (p.half ? 'on' : '') + '">1/2 mile</button>';
@@ -320,8 +318,10 @@ RL.Drag = (function () {
     }
     RL.Game.save();
     RL.Game.startRace({
-      kind: 'drag', league: e.league, title: e.name, dragId: e.id, opp: e.opp, color: e.color,
-      skill: e.skill, half: !!p.half, stake: begun.amount, pink: begun.pink
+      kind: 'drag', track: p.half ? 'half' : 'quarter', laps: 1, aiCount: 1,
+      league: e.league, title: e.name, dragId: e.id, opp: e.opp, color: e.color,
+      skill: e.skill, half: !!p.half, stake: begun.amount, pink: begun.pink,
+      weather: 'clear', time: 'day', damage: true, nitro: true
     });
     return true;
   }

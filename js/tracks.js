@@ -107,6 +107,54 @@ RL.Tracks = (function () {
     return { pts: pts, N: N, len: len, minX: minX, minY: minY, maxX: maxX, maxY: maxY, cps: [0, Math.floor(N * 0.25), Math.floor(N * 0.5), Math.floor(N * 0.75)] };
   }
 
+  /* Open polyline. The last sample is the finish line. The path does not loop. */
+  function sampleOpen(rawPts) {
+    if (!rawPts || rawPts.length < 2) {
+      return { pts: [], N: 0, len: 0, cps: [0, 0], minX: 0, minY: 0, maxX: 1, maxY: 1, open: true, finishAt: 0 };
+    }
+    const body = rawPts.map((p) => Array.isArray(p) ? { x: +p[0], y: +p[1] } : { x: +p.x, y: +p.y });
+    const first = body[0], second = body[1], last = body[body.length - 1], prev = body[body.length - 2];
+    const cp = [
+      { x: first.x * 2 - second.x, y: first.y * 2 - second.y },
+      ...body,
+      { x: last.x * 2 - prev.x, y: last.y * 2 - prev.y }
+    ];
+    const pts = [];
+    for (let i = 1; i < cp.length - 2; i++) {
+      const p0 = cp[i - 1], p1 = cp[i], p2 = cp[i + 1], p3 = cp[i + 2];
+      const steps = Math.max(4, Math.ceil(Math.hypot(p2.x - p1.x, p2.y - p1.y) / SAMPLE));
+      for (let s = 0; s < steps; s++) {
+        const t = s / steps, t2 = t * t, t3 = t2 * t;
+        pts.push({
+          x: 0.5 * (2 * p1.x + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+          y: 0.5 * (2 * p1.y + (-p0.y + p2.y) * t + (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 + (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3)
+        });
+      }
+    }
+    const N = pts.length;
+    let len = 0, minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+    for (let i = 0; i < N; i++) {
+      const a = pts[i], b = pts[Math.min(N - 1, i + 1)];
+      const dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1;
+      if (i === N - 1 && N > 1) {
+        const p = pts[N - 2];
+        a.tx = p.tx; a.ty = p.ty; a.nx = p.nx; a.ny = p.ny; a.seg = 0.001; a.curv = 0;
+      } else {
+        a.tx = dx / l; a.ty = dy / l; a.nx = -a.ty; a.ny = a.tx; a.seg = l; len += l;
+      }
+      if (a.x < minX) minX = a.x; if (a.y < minY) minY = a.y; if (a.x > maxX) maxX = a.x; if (a.y > maxY) maxY = a.y;
+    }
+    for (let i = 0; i < N; i++) {
+      const a = pts[i], b = pts[Math.min(N - 1, i + 6)];
+      let d = Math.atan2(b.ty, b.tx) - Math.atan2(a.ty, a.tx);
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      a.curv = d;
+    }
+    const finishAt = Math.max(1, N - 3);
+    return { pts: pts, N: N, len: len, minX: minX, minY: minY, maxX: maxX, maxY: maxY, cps: [0, finishAt], open: true, finishAt: finishAt };
+  }
+
   /* Same slot math as RL.Race placeOnGrid (pole is slot 0). */
   function gridSlots(geom, width, count) {
     const slots = [];
@@ -216,6 +264,10 @@ RL.Tracks = (function () {
       if (!p || !isFinite(p[0]) || !isFinite(p[1])) bad = true;
     }
     if (bad) errors.push('A waypoint has invalid coordinates');
+    if (def.open && !bad && pts.length >= 2) {
+      const geom = sampleOpen(pts);
+      return { ok: true, errors: [], warnings: [], length: geom.len, crossings: [], checkpoints: 2 };
+    }
     if (!bad && pts.length >= 2) {
       let close = 0, minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9, long = false;
       for (let i = 0; i < pts.length; i++) {
@@ -570,7 +622,7 @@ RL.Tracks = (function () {
 
   return {
     KEY: KEY, SAMPLE: SAMPLE, DECO_IDS: DECO_IDS, THEME_DECO: THEME_DECO,
-    blank: blank, normalize: normalize, validate: validate, sampleLoop: sampleLoop, gridSlots: gridSlots,
+    blank: blank, normalize: normalize, validate: validate, sampleLoop: sampleLoop, sampleOpen: sampleOpen, gridSlots: gridSlots,
     scatter: scatter, formatLength: formatLength,
     allCustom: allCustom, get: get, save: save, remove: remove, resolve: resolve, asRaceDef: asRaceDef,
     lobbyChoices: lobbyChoices, onChange: onChange,

@@ -77,7 +77,7 @@
     { id: 'arch', name: 'Neon Arch', x: 70 * T, y: 9.5 * T, r: 80, text: 'The arch marks the Neon Mile. Photos taken under it at night are a city tradition. The Phantom\'s first public win was shot from this curb.' },
     { id: 'clock', name: 'Old Town Clock', x: 51.5 * T, y: 39.5 * T, r: 70, text: 'Stopped at 11:07 the night the Phantom first won the spiral. Nobody reset it. City Hall still calls that minute the real founding.' },
     { id: 'statue', name: 'Founders Statue', x: 87 * T, y: 41 * T, r: 64, text: 'A bronze driver with no face. The plaque just says "EARN IT". The Heights hospital is the door if the plaque wins.' },
-    { id: 'tower', name: 'Dragway Tower', x: 8 * T, y: 61.5 * T, r: 70, text: 'Christmas tree, timing booth, and a board of ET records that still has blank lines. Pit Lane, north of the strip, posts the street meets.' },
+    { id: 'tower', name: 'Dragway Tower', x: 8 * T, y: 61.5 * T, r: 70, text: 'The tower opens the same straight as the dragway. Quarter mile or half mile, finish line at the far end. Pit Lane posts the street meets.' },
     { id: 'fountain', name: 'Plaza Fountain', x: 15.5 * T, y: 15.5 * T, r: 70, text: 'Downtown\'s meeting spot. Coins in the water are bad luck. Respect is the real currency.' },
     { id: 'cranes', name: 'Container Cranes', x: 37 * T, y: 16 * T, r: 74, text: 'Harbor Co. moves more than cargo after midnight. The chandlery next door sells parts. The dealer up the quay sells the car to put them on.' },
     { id: 'plaza', name: 'Bank Plaza', x: 50 * T, y: 6 * T, r: 60, text: 'Marble, cameras, and a vault that has never been politely opened.' }
