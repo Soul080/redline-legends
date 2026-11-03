@@ -103,7 +103,7 @@ export const game = {
       const car = career.currentCar();
       if (hub.player && car && !hub.player.stolen) hub.player.damage = car.damage;
     };
-    hub.onDrag = () => this.startDrag();
+    hub.onDrag = () => this.startDrag({ ask: true });
     hub.onStreetFinish = (res) => this._finished(res);
     race.onFinish = (res) => this._finished(res);
     drag.onFinish = (res) => this._finished(res);
@@ -187,8 +187,8 @@ export const game = {
       this.toHub();
     };
     actions.editor = (def) => this.openEditor(def);
-    actions.startRace = (cfg) => this.startRace(cfg);
-    actions.startDrag = () => this.startDrag();
+    actions.startRace = (cfg) => this.offerRace(cfg);
+    actions.startDrag = () => this.startDrag({ ask: true });
     actions.photo = () => this.togglePhoto();
     actions.photoUi = (cmd, arg) => this._photoUi(cmd, arg);
     actions.quality = () => {
@@ -205,6 +205,10 @@ export const game = {
     actions.preview = () => {};
     actions.paint = (color) => {
       if (!career.state) return;
+      if (hub.player && hub.player.stolen) {
+        ui.toast('Stolen cars can\'t be upgraded, painted, or tuned.', '#fff');
+        return;
+      }
       career.currentCar().style.color = color;
       career.save();
       if (hub.player) hub.refreshCar();
@@ -215,6 +219,36 @@ export const game = {
     actions.quit = () => { ui.closeAll(); this.toHub(); };
     actions.again = (cfg) => this._again(cfg);
     actions.closed = () => { race.paused = false; drag.paused = false; };
+  },
+
+  lastCar() {
+    const p = hub.player;
+    if (p && p.stolen && p.stolen.name) return { name: p.stolen.name, stolen: true };
+    const car = career.currentCar();
+    const def = car && career.carDef(car.id);
+    return { name: def ? def.name : 'Your car', stolen: false };
+  },
+
+  offerRace(cfg, thenStart) {
+    if (!cfg || cfg.carChosen || cfg.kind === 'testdrive' || cfg.kind === 'escape' || cfg.multiplayer) {
+      if (thenStart) thenStart(cfg);
+      else this.startRace(cfg);
+      return;
+    }
+    const ride = this.lastCar();
+    const label = ride.name + (ride.stolen ? ' · STOLEN' : '');
+    const go = (useLast) => {
+      cfg.useLast = !!useLast;
+      cfg.carChosen = true;
+      ui.closeAll();
+      if (thenStart) thenStart(cfg);
+      else this.startRace(cfg);
+    };
+    ui.open({
+      title: 'Which car?',
+      render: () => '<p style="color:#fff">Use the last car you were in?</p><p style="color:#fff"><b>' + String(label).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) + '</b></p><div class="row"><button class="primary" data-act="yes">Yes</button><button data-act="no">No</button></div>',
+      acts: { yes: () => go(true), no: () => go(false) }
+    });
   },
 
   startRace(cfg) {
@@ -233,8 +267,6 @@ export const game = {
     this._hideFreeRoam();
     this.city.group.visible = false;
     try {
-      // League, boss, drag and custom grids always build the owned career car.
-      // A stolen traffic car stays parked in the city.
       this.lastError = '';
       race.start(cfg, this.fx);
     } catch (err) {
@@ -255,37 +287,48 @@ export const game = {
     this.weather = cfg.weather || 'clear';
   },
 
-  startDrag() {
+  startDrag(opts) {
     const prefs = (career.state && career.state.dragPrefs) || {};
     const half = !!prefs.half;
     const league = (career.state && career.state.league) || 1;
     const table = { 1: 200, 2: 450, 3: 900, 4: 1600 };
     const stake = prefs.stake === false ? 0 : (table[league] || 200);
-    if (stake && career.state && career.state.money < stake) {
-      ui.toast('Not enough cash for that stake');
-      return;
-    }
-    if (stake && career.state) {
-      career.addMoney(-stake);
-      career.state.dragStake = { amount: stake, settled: false };
-      career.save();
-    }
-    this.startRace({
+    const cfg = {
       kind: 'drag', track: half ? 'half' : 'quarter', laps: 1, aiCount: 1,
       league: league, title: half ? 'Half Mile' : 'Quarter Mile',
-      weather: 'clear', time: 'day', damage: true, nitro: true, traffic: false, collisions: true,
-      stake: stake
-    });
+      weather: 'clear', time: 'day', damage: true, nitro: true, traffic: false, collisions: true
+    };
+    const go = (chosen) => {
+      const raceCfg = chosen || cfg;
+      if (stake && career.state && career.state.money < stake) {
+        ui.toast('Not enough cash for that stake');
+        return;
+      }
+      if (stake && career.state) {
+        career.addMoney(-stake);
+        career.state.dragStake = { amount: stake, settled: false };
+        career.save();
+      }
+      raceCfg.stake = stake;
+      this.startRace(raceCfg);
+    };
+    if (opts && opts.ask) this.offerRace(cfg, go);
+    else go(cfg);
   },
 
   _again(cfg) {
-    if (cfg.kind === 'drag') this.startDrag();
-    else if (cfg.kind === 'street') hub.startChallenge(cfg.streetId);
-    else this.startRace(cfg);
+    const c = Object.assign({}, cfg);
+    delete c.carChosen;
+    if (c.kind === 'drag') this.startDrag({ ask: true });
+    else if (c.kind === 'street') hub.startChallenge(c.streetId);
+    else this.offerRace(c);
   },
 
   _finished(res) {
     audio.stopEngine();
+    if (res.cfg && res.cfg.stolenRide && hub.player && hub.player.stolen) {
+      hub.player.damage = Math.max(0, Math.min(100, res.damageEnd || 0));
+    }
     const sum = career.finishEvent(res);
     if (res.cfg.kind === 'boss' && res.position === 1) ui.queueStory('boss' + res.cfg.league);
     ui.showResults(sum);
@@ -399,8 +442,8 @@ export const game = {
       precinct: () => ui.showHQ(),
       customs: () => ui.showGarage('look'),
       gears: () => ui.showGarage('tune'),
-      drag: () => { interior.leave({ silent: true }); this.startDrag(); },
-      booth: () => { interior.leave({ silent: true }); this.startDrag(); },
+      drag: () => { interior.leave({ silent: true }); this.startDrag({ ask: true }); },
+      booth: () => { interior.leave({ silent: true }); this.startDrag({ ask: true }); },
       street: () => { interior.leave(); ui.toast('Gold cars on the street will race you.', '#ff2ef0'); },
       meetup: () => { interior.leave(); ui.toast('Gold cars on the avenue will race you.', '#ff2ef0'); },
       club: () => { interior.leave(); ui.toast('Gold cars on the avenue will race you.', '#ff2ef0'); },

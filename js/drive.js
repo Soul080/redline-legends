@@ -452,7 +452,7 @@ RL.Drive = (function () {
     p.joyride = { tier: tier.id, name: tier.name, color: c.color || tier.color, cls: tier.cls || 'Coupe', damage: 0 };
     if (RL.Parked) RL.Parked.remove(c);
     saveJoyride();
-    if (witnessed && RL.Wanted && RL.Parked) RL.Wanted.report('steal', { amount: RL.Parked.breakHeat(tier), parked: true });
+    if (RL.Wanted) RL.Wanted.report('steal', { amount: witnessed && RL.Parked ? RL.Parked.breakHeat(tier) : (tier.heat || 8), parked: true });
     guardGarage(s, beforeCars, beforeMoney, beforeId);
     try { RL.Audio.play('confirm'); } catch (e) { }
     return true;

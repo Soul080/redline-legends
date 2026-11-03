@@ -61,7 +61,7 @@ RL.Wanted = (function () {
     w.bounty = Math.min(RL.Heat.BOUNTY_CAP, before + amt);
     const gained = w.bounty - before;
     if (gained > 0) {
-      const label = kind === 'pedestrian' ? 'Pedestrian' : kind === 'wreck' ? 'Wreck' : 'Ram';
+      const label = kind === 'pedestrian' ? 'Pedestrian' : kind === 'wreck' ? 'Wreck' : kind === 'steal' ? 'Stolen car' : 'Ram';
       try { RL.UI.toast(label + ' — bounty +' + RL.fmtMoney(gained), '#fff'); } catch (e) { }
       try { if (RL.Servers && RL.Servers.noteCrime) RL.Servers.noteCrime(kind); } catch (e2) { }
     }
@@ -106,7 +106,7 @@ RL.Wanted = (function () {
     cleanFor = 0;
     if (coolFrom != null && w.heat < coolFrom) w.heat = coolFrom;
     hiddenFor = 0;
-    if (type === 'robbery') w.heat = RL.Heat.raiseForRobbery(w.heat, amt);
+    if (type === 'robbery' || type === 'steal') w.heat = RL.Heat.raiseForRobbery(w.heat, amt);
     else {
       w.heat = RL.clamp(w.heat + amt, 0, RL.Heat.MAX);
       if (type === 'street') w.heat = Math.max(w.heat, 48);
@@ -114,6 +114,7 @@ RL.Wanted = (function () {
     }
     coolFrom = w.heat;
     syncStars(w);
+    if (type === 'steal') addBounty('steal');
     if (type === 'copkill') RL.UI.toast('Cruiser destroyed', '#ff3b6b');
     else if (type === 'steal') RL.UI.toast(info.parked ? 'Someone saw the break-in' : 'Stolen car — the police noticed', '#ff8a2e');
     else if (type === 'prop' && info.destroyed) RL.UI.toast('Smashed a ' + (info.kind || 'prop'), '#ff8a2e');

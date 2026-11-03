@@ -133,7 +133,7 @@ RL.FreePlay = (function () {
       return;
     }
     const custom = cur.custom ? RL.Tracks.resolve(cur.id) : null;
-    G.startRace({
+    G.offerRace({
       kind: 'custom',
       track: cur.id,
       trackDef: custom || undefined,

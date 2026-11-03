@@ -92,7 +92,7 @@ export function decay(heat, stars, dt, visible, cleanFor, hiddenFor) {
 
 /** Standing bounty. Each new star adds starPay, and higher stars add more. */
 export const BOUNTY_CAP = 100000;
-const CRIME = { pedestrian: 75, ram: 50, wreck: 150 };
+const CRIME = { pedestrian: 75, ram: 50, wreck: 150, steal: 120 };
 
 export function starPay(n, role) {
   const k = Math.max(1, Math.round(Number(n) || 0));

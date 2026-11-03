@@ -509,7 +509,10 @@ export const career = {
     const s = this.state;
     const car = this.currentCar();
     const cfg = res.cfg;
-    car.damage = clamp(res.damageEnd || 0, 0, 100);
+    if (cfg.stolenRide) {
+      const dmg = clamp(res.damageEnd || 0, 0, 100);
+      if (s.hub3d && s.hub3d.stolen) s.hub3d.stolen.damage = dmg;
+    } else car.damage = clamp(res.damageEnd || 0, 0, 100);
     s.totals.races++;
     s.totals.crashes += (res.wallHits || 0) + (res.carHits || 0);
     s.totals.nitro += res.nitroTime || 0;

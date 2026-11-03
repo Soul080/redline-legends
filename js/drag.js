@@ -309,19 +309,22 @@ RL.Drag = (function () {
     const s = RL.Game.state, p = prefs(), car = RL.Game.currentCar();
     if (s.league < e.league) return;
     const stake = p.stake ? RL.DragRules.stakeFor(e.league) : 0;
-    const begun = RL.DragRules.begin(s, {
-      league: e.league, stake: stake, pink: !!p.pink, eventId: e.id, carUid: car.uid
-    });
-    if (!begun.ok) {
-      RL.UI.toast(begun.reason === 'broke' ? 'Not enough cash for that stake' : 'Finish the open bet first', '#ff8a2e');
-      return false;
-    }
-    RL.Game.save();
-    RL.Game.startRace({
+    const cfg = {
       kind: 'drag', track: p.half ? 'half' : 'quarter', laps: 1, aiCount: 1,
       league: e.league, title: e.name, dragId: e.id, opp: e.opp, color: e.color,
-      skill: e.skill, half: !!p.half, stake: begun.amount, pink: begun.pink,
-      weather: 'clear', time: 'day', damage: true, nitro: true
+      skill: e.skill, half: !!p.half, pink: !!p.pink, weather: 'clear', time: 'day', damage: true, nitro: true
+    };
+    RL.Game.offerRace(cfg, (chosen) => {
+      const begun = RL.DragRules.begin(s, {
+        league: e.league, stake: stake, pink: !!p.pink, eventId: e.id, carUid: car.uid
+      });
+      if (!begun.ok) {
+        RL.UI.toast(begun.reason === 'broke' ? 'Not enough cash for that stake' : 'Finish the open bet first', '#ff8a2e');
+        return;
+      }
+      chosen.stake = begun.amount;
+      RL.Game.save();
+      RL.Game.startRace(chosen);
     });
     return true;
   }
@@ -345,6 +348,15 @@ RL.Drag = (function () {
     return !!ok;
   }
   function showGears() {
+    if (RL.Hub && RL.Hub.player && RL.Hub.player.joyride) {
+      const name = RL.Hub.player.joyride.name || 'This car';
+      RL.UI.open({
+        title: 'Gear Ratios',
+        render: () => '<p class="stolen-note" style="color:#fff;background:#0c0816;border:1px solid #fff;padding:8px 10px">Stolen cars can\'t be upgraded, painted, or tuned. <b style="color:#fff">' + name + '</b> stays as you found it.</p><div class="row"><button data-act="back">Close</button></div>',
+        acts: {}
+      });
+      return;
+    }
     const car = RL.Game.currentCar();
     RL.UI.open({
       title: 'Gear Ratios',

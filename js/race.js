@@ -176,8 +176,28 @@ RL.Race = (function () {
       ended: false, endTimer: 0, finishOrder: [], elimCount: 0, ghostRec: [], recT: 0, startBoostChecked: false,
       stats: { wallHits: 0, carHits: 0, nitroTime: 0, draftTime: 0, topSpeed: 0, drift: 0, cleanLaps: 0, lapHit: false, wasLast: false } };
     // player
-    const pc = G.currentCar(), pst = G.carStats(pc);
-    const player = makeCar({ isPlayer: true, name: S.name, color: G.carColor(pc), p: physFromStats(pst), damage: RL.clamp(pc.damage, 0, 100), startDamage: RL.clamp(pc.damage, 0, 100), carId: pc.id, cls: G.carDef(pc.id).cls });
+    const pc = G.currentCar();
+    let pst = G.carStats(pc);
+    let color = G.carColor(pc);
+    let carId = pc.id;
+    let cls = G.carDef(pc.id).cls;
+    let dmg = RL.clamp(pc.damage, 0, 100);
+    const joy = cfg.useLast && RL.Hub && RL.Hub.player && RL.Hub.player.joyride;
+    if (joy) {
+      const tier = RL.Traffic && RL.Traffic.tier(joy.tier);
+      cfg.stolenRide = true;
+      if (tier) {
+        pst = {
+          topSpeed: Math.round(42 * tier.top), accel: Math.round(40 * tier.acc), handling: Math.round(40 * tier.turn),
+          grip: 40, nitro: 28, durability: Math.round(tier.hp * 0.5)
+        };
+      }
+      color = joy.color || (tier && tier.color) || color;
+      carId = joy.tier || carId;
+      cls = joy.cls || (tier && tier.cls) || cls;
+      dmg = RL.clamp(joy.damage || 0, 0, 100);
+    }
+    const player = makeCar({ isPlayer: true, name: S.name, color: color, p: physFromStats(pst), damage: dmg, startDamage: dmg, carId: carId, cls: cls, stolenRide: !!joy });
     if (cfg.kind === 'testdrive') player.damage = 0;
     if (cfg.nitro === false) player.nitro = 0;
     else if (RL.hasPerk('double_tank')) player.nitro = 100;
@@ -1000,7 +1020,10 @@ RL.Race = (function () {
       if (RL.Editor) RL.Editor.resumeAfterTest(null);
       return;
     }
-    if (cfg.damage !== false && RL.Game.currentCar()) RL.Game.currentCar().damage = RL.clamp(R.player.damage, 0, 100);
+    if (cfg.stolenRide && RL.Hub && RL.Hub.player && RL.Hub.player.joyride) {
+      RL.Hub.player.joyride.damage = RL.clamp(R.player.damage, 0, 100);
+      if (RL.Game.state && RL.Game.state.hub) RL.Game.state.hub.joyride = Object.assign({}, RL.Hub.player.joyride);
+    } else if (cfg.damage !== false && RL.Game.currentCar()) RL.Game.currentCar().damage = RL.clamp(R.player.damage, 0, 100);
     if (cfg.multiplayer && RL.Net) RL.Net.disconnect();
     RL.Game.toHub();
   }

@@ -191,7 +191,7 @@ export const wanted = {
     this.shownBounty = next;
     if (!career.state.wanted || typeof career.state.wanted !== 'object') career.state.wanted = {};
     career.state.wanted.bounty = next;
-    const label = kind === 'pedestrian' ? 'Pedestrian' : kind === 'wreck' ? 'Wreck' : 'Ram';
+    const label = kind === 'pedestrian' ? 'Pedestrian' : kind === 'wreck' ? 'Wreck' : kind === 'steal' ? 'Stolen car' : 'Ram';
     this.msg(label + ' — bounty +$' + gained, '#fff');
     if (window.parent && window.parent !== window) {
       try { window.parent.postMessage({ type: 'rl-crime', kind: kind }, '*'); } catch (e) { /* parent owns the server call */ }
@@ -217,7 +217,7 @@ export const wanted = {
     this.hiddenFor = 0;
     const beforeStars = this.stars;
     this.heat = Math.min(HEAT_MAX, this.heat + a);
-    if (kind === 'robbery') {
+    if (kind === 'robbery' || kind === 'steal') {
       const need = starThreshold(beforeStars + 1);
       if (this.heat < need) this.heat = Math.min(HEAT_MAX, need);
     }
@@ -233,6 +233,7 @@ export const wanted = {
       if (label && kind !== 'red' && kind !== 'traffic' && kind !== 'cop') this.msg(label, '#ff8a2e');
     }
     this._sync();
+    if (kind === 'steal') this.addCrime('steal');
     if (role === 'police' && this.stars > 0) this.pullBadge();
   },
 

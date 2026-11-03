@@ -11,7 +11,7 @@ RL.Heat = (function () {
      One star is already a long wait. Past five, each star waits longer. */
   const HIDE_SEC = [0, 90, 120, 150, 180, 240];
   const BOUNTY_CAP = 100000;
-  const CRIME = { pedestrian: 75, ram: 50, wreck: 150 };
+  const CRIME = { pedestrian: 75, ram: 50, wreck: 150, steal: 120 };
   /* Heat required to show this many stars. After five, the gaps keep growing. */
   function starThreshold(n) {
     const k = Math.max(0, n | 0);

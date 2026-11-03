@@ -265,7 +265,7 @@ RL.Community = (function () {
     if (!row || !RL.Game) return;
     const fp = (RL.FreePlay && RL.FreePlay.settings) || {};
     RL.UI.closeAll();
-    RL.Game.startRace({
+    RL.Game.offerRace({
       kind: 'custom',
       track: 'community',
       trackDef: RL.Tracks.asRaceDef(row.def),

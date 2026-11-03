@@ -792,6 +792,34 @@ RL.Game = {
     if (f.leagueBoss3 || s.league >= 4) this.startQuest('q10');
   },
   /* ---------- Race flow ---------- */
+  lastCar() {
+    const p = RL.Hub && RL.Hub.player;
+    if (p && p.joyride && p.joyride.name) return { name: p.joyride.name, stolen: true };
+    const car = this.currentCar();
+    const def = car && this.carDef(car.id);
+    return { name: def ? def.name : 'Your car', stolen: false };
+  },
+  offerRace(cfg, thenStart) {
+    if (!cfg || cfg.carChosen || cfg.kind === 'testdrive' || cfg.kind === 'escape' || cfg.multiplayer) {
+      if (thenStart) thenStart(cfg);
+      else this.startRace(cfg);
+      return;
+    }
+    const ride = this.lastCar();
+    const label = ride.name + (ride.stolen ? ' · STOLEN' : '');
+    const go = (useLast) => {
+      cfg.useLast = !!useLast;
+      cfg.carChosen = true;
+      RL.UI.closeAll();
+      if (thenStart) thenStart(cfg);
+      else this.startRace(cfg);
+    };
+    RL.UI.open({
+      title: 'Which car?',
+      render: () => '<p style="color:#fff">Use the last car you were in?</p><p style="color:#fff"><b>' + String(label).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) + '</b></p><div class="row"><button class="primary" data-act="yes">Yes</button><button data-act="no">No</button></div>',
+      acts: { yes: () => go(true), no: () => go(false) }
+    });
+  },
   startRace(cfg) {
     RL.UI.closeAll();
     try { RL.Race.start(cfg); }
@@ -819,7 +847,10 @@ RL.Game = {
     res.rewardsApplied = true;
     this.ensureSaveShape();
     const s = this.state, car = this.currentCar();
-    if (cfg.damage !== false && car) car.damage = RL.clamp(res.damageEnd, 0, 100);
+    if (cfg.stolenRide && RL.Hub && RL.Hub.player && RL.Hub.player.joyride) {
+      RL.Hub.player.joyride.damage = RL.clamp(res.damageEnd, 0, 100);
+      if (s.hub) s.hub.joyride = Object.assign({}, RL.Hub.player.joyride);
+    } else if (cfg.damage !== false && car) car.damage = RL.clamp(res.damageEnd, 0, 100);
     s.totals.races++; s.totals.crashes += res.wallHits + res.carHits; s.totals.nitro += res.nitroTime; s.totals.draft += res.draftTime;
     if (cfg.kind === 'training') s.totals.training++;
     const L = this.leagueData(cfg.league || s.league);

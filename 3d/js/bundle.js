@@ -1019,7 +1019,10 @@
       const s = this.state;
       const car = this.currentCar();
       const cfg = res.cfg;
-      car.damage = clamp(res.damageEnd || 0, 0, 100);
+      if (cfg.stolenRide) {
+        const dmg = clamp(res.damageEnd || 0, 0, 100);
+        if (s.hub3d && s.hub3d.stolen) s.hub3d.stolen.damage = dmg;
+      } else car.damage = clamp(res.damageEnd || 0, 0, 100);
       s.totals.races++;
       s.totals.crashes += (res.wallHits || 0) + (res.carHits || 0);
       s.totals.nitro += res.nitroTime || 0;
@@ -29520,7 +29523,7 @@ void main() {
     return s;
   }
   var BOUNTY_CAP = 1e5;
-  var CRIME = { pedestrian: 75, ram: 50, wreck: 150 };
+  var CRIME = { pedestrian: 75, ram: 50, wreck: 150, steal: 120 };
   function starPay(n, role) {
     const k = Math.max(1, Math.round(Number(n) || 0));
     const base = 80 + 60 * k;
@@ -30305,7 +30308,7 @@ void main() {
       this.shownBounty = next;
       if (!career.state.wanted || typeof career.state.wanted !== "object") career.state.wanted = {};
       career.state.wanted.bounty = next;
-      const label = kind === "pedestrian" ? "Pedestrian" : kind === "wreck" ? "Wreck" : "Ram";
+      const label = kind === "pedestrian" ? "Pedestrian" : kind === "wreck" ? "Wreck" : kind === "steal" ? "Stolen car" : "Ram";
       this.msg(label + " \u2014 bounty +$" + gained, "#fff");
       if (window.parent && window.parent !== window) {
         try {
@@ -30332,7 +30335,7 @@ void main() {
       this.hiddenFor = 0;
       const beforeStars = this.stars;
       this.heat = Math.min(HEAT_MAX, this.heat + a);
-      if (kind === "robbery") {
+      if (kind === "robbery" || kind === "steal") {
         const need = starThreshold(beforeStars + 1);
         if (this.heat < need) this.heat = Math.min(HEAT_MAX, need);
       }
@@ -30354,6 +30357,7 @@ void main() {
         if (label && kind !== "red" && kind !== "traffic" && kind !== "cop") this.msg(label, "#ff8a2e");
       }
       this._sync();
+      if (kind === "steal") this.addCrime("steal");
       if (role === "police" && this.stars > 0) this.pullBadge();
     },
     /** Standing bounty. Heat can fall. This number does not, until a bust. */
@@ -32436,7 +32440,16 @@ void main() {
       let playerStats = career.carStats(pc);
       let playerStyle = pc.style;
       let playerColor = career.carColor(pc);
-      if (cfg.carClass && cfg.carClass !== "current") {
+      let playerDamage = pc.damage || 0;
+      const stolen = cfg.useLast && hub.player && hub.player.stolen && (hub.player.def || career.carDef(hub.player.stolen.id));
+      if (stolen) {
+        cfg.stolenRide = true;
+        playerDef = hub.player.def || stolen;
+        playerStats = Object.assign({}, playerDef.s);
+        playerStyle = { color: playerDef.color, rims: 1, decal: "none", underglow: false };
+        playerColor = playerDef.color;
+        playerDamage = hub.player.damage || 0;
+      } else if (cfg.carClass && cfg.carClass !== "current") {
         playerDef = RL.CARS.find((c) => c.cls === cfg.carClass) || playerDef;
         playerStats = Object.assign({}, playerDef.s);
         playerStyle = { color: playerDef.color, rims: 1, decal: "none", underglow: false, siren: S.role === "police" };
@@ -32447,8 +32460,8 @@ void main() {
         name: S.name,
         color: playerColor,
         p: physFromStats(playerStats),
-        damage: cfg.damage === false ? 0 : pc.damage,
-        startDamage: pc.damage,
+        damage: cfg.damage === false ? 0 : playerDamage,
+        startDamage: playerDamage,
         style: playerStyle,
         def: playerDef,
         lights: true
@@ -33769,7 +33782,22 @@ void main() {
       if (v && v.form) v.form[t.dataset.field] = t.value;
     }
   }
+  function stolenRide() {
+    return hub.player && hub.player.stolen;
+  }
+  function stolenNote(extra) {
+    const s = stolenRide();
+    if (!s) return "";
+    const name = escapeHtml(s.name || "This car");
+    return `<p class="stolen-note" style="color:#fff;background:#0c0816;border:1px solid #fff;padding:8px 10px">Stolen cars can't be upgraded, painted, or tuned. <b style="color:#fff">` + name + "</b> stays as you found it." + (extra ? " " + extra : "") + "</p>";
+  }
+  function blockStolen() {
+    if (!stolenRide()) return false;
+    ui.toast("Stolen cars can't be upgraded, painted, or tuned.", "#fff");
+    return true;
+  }
   function onKey(e) {
+    const typing = e.target && (e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT" || e.target.tagName === "INPUT" && e.target.type !== "button");
     if (e.target && e.target.tagName === "INPUT" && e.target.type === "text") {
       if (e.code === "Enter") {
         const b = panel.querySelector(".primary");
@@ -33778,6 +33806,13 @@ void main() {
       return;
     }
     if (stack.length) {
+      if ((e.code === "Enter" || e.code === "NumpadEnter") && !typing) {
+        e.preventDefault();
+        const focused = document.activeElement;
+        const hit = focused && panel.contains(focused) && focused.getAttribute && focused.getAttribute("data-act") ? focused : panel.querySelector(".primary:not([disabled])");
+        if (hit && !hit.disabled) hit.click();
+        return;
+      }
       const nav = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1, KeyS: 1, KeyD: 1, KeyW: -1, KeyA: -1 }[e.code];
       if (nav && !(document.activeElement && document.activeElement.type === "range")) {
         e.preventDefault();
@@ -33873,7 +33908,7 @@ void main() {
   }
   function showHelp() {
     const clock = (n) => formatCooldown(hideSeconds(n));
-    open({ title: "How to Play", cls: "help-panel", render: () => `<ul class="help"><li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building's lot and press <kbd>E</kbd> to walk inside. The avenue itself is not a door. Talk to the person at the counter. The south door leaves. Downtown has the garage, race office, shop, dealership, and the bar. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway building is east. The tower outside it is the same room.</li><li><b>Heat:</b> stars do not stop at five. The board shows up to five star icons, then a count such as \u2605 x12. A nudge or a cone barely counts. Red lights, wrecks, smashed props, and holding a high speed do count. Stars do not fall while the police can see you. Break line of sight and stay hidden. The HUD shows a white cooldown: ` + clock(1) + " at one star, " + clock(5) + " at five, and " + clock(8) + " at eight. Past five, every extra star waits longer. Spotting you resets that clock. When it hits zero, one star drops. Kingpin trims the wait a little. Each new star adds bounty, and a higher star adds more. Running someone over, ramming a car, or wrecking one adds bounty too. Losing the police pays nothing and does not wipe it. The bounty stays until you are busted. In a city server, a cop can bust you and claim it. Cruisers start off screen, on a road, and drive to you. A stuck cruiser reverses. It does not pop in beside you. Past five stars the squad stays small enough to dodge.</li><li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> or <kbd>C</kbd> to steal it. The STEAL button does the same. Tiers have different speed and health. Circuit races and the drag strip always use the car you own. At a shop door, or at the counter inside, <kbd>C</kbd> robs the till instead.</li><li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. If a cop picks up a wanted star, they become Neutral immediately and cannot change roles for 5 minutes. The timer shows on screen and is stored in the save. Each role has its own rank. A criminal is a known face: shops, repairs, fuel, and the hospital cost 12% more, sales pay less, and heat falls slower. Kingpin waives that street tax.</li><li><b>On sight:</b> with no wanted stars, an officer outside the police station still shoots a criminal in view. The shot flashes, then fires at the spot you were standing. Move more than a step, take the far lane, break the line with a building, or pull into the station lot. The lot is a ceasefire so you can still change roles. The shot spends health. It does not add a star. Driving off refills that health.</li><li><b>Shops:</b> Walk into the parts shop, Quick Mart, the dealership, or Nitro Fuel. On foot, the lot is the door. Inside, walk up to the counter. <kbd>E</kbd> talks to the clerk. <kbd>C</kbd> at that counter, or at the door, takes the cash. Rob the register does the same. Away from a till, <kbd>C</kbd> still steals a car. Wanted stars go up, and the bounty under them goes up with the heat. The till stays empty for about a minute. <kbd>Q</kbd> gets you back in the car.</li><li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li><li><b>Camera:</b> <kbd>V</kbd>, the Cam button, or the touch CAM button cycles chase, cockpit, a front camera (the road ahead stays in the corner), and top-down. A label such as Camera: Chase [V] shows the one you just picked. Top-down follows you from above and stays above the roofs. Settings chooses north-up or car-up. Left and right steer the car, including on foot and on the touch pad. The front camera looks back at you, so the car can move the other way on the screen. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li><li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260, or a bit more if you are a known criminal. Blowing up during a chase counts as a bust.</li><li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li><li><b>Drag:</b> walk into the drag building or the tower and talk to the starter. A drag is a normal race on a flat straight: the same car, the same physics, the same HUD, and one opponent. Quarter mile is about 400 m. Half mile is about 800 m. The finish line is the far end. Gas, brake, and steer are unchanged. The strip apron stages the same race.</li><li><b>Custom:</b> the Race Office opens a custom grid and the track editor. Export a share code to pass a layout around.</li><li><b>Streets:</b> parked rivals with a gold glow will race you point to point. Police players can intercept them instead.</li><li>Top 3 in all three league races unlocks the boss. Beat the boss to get promoted.</li><li><kbd>F</kbd> photo mode. <kbd>R</kbd> resets you to the road if you get stuck. <kbd>Esc</kbd> pauses.</li></ul>" });
+    open({ title: "How to Play", cls: "help-panel", render: () => `<ul class="help"><li><b>City:</b> you drive the road grid. Traffic stops for lights. Pull into a building's lot and press <kbd>E</kbd> to walk inside. The avenue itself is not a door. Talk to the person at the counter. The south door leaves. Downtown has the garage, race office, shop, dealership, and the bar. Harbor loads smugglers. Neon Mile has the bank and the arch. Industrial is the police station and the mart. Old Town has the hospital and the clock. The Heights has fuel, the park, and the vista. The dragway building is east. The tower outside it is the same room.</li><li><b>Heat:</b> stars do not stop at five. The board shows up to five star icons, then a count such as \u2605 x12. A nudge or a cone barely counts. Red lights, wrecks, smashed props, and holding a high speed do count. Stars do not fall while the police can see you. Break line of sight and stay hidden. The HUD shows a white cooldown: ` + clock(1) + " at one star, " + clock(5) + " at five, and " + clock(8) + " at eight. Past five, every extra star waits longer. Spotting you resets that clock. When it hits zero, one star drops. Kingpin trims the wait a little. Each new star adds bounty, and a higher star adds more. Running someone over, ramming a car, or wrecking one adds bounty too. Losing the police pays nothing and does not wipe it. The bounty stays until you are busted. In a city server, a cop can bust you and claim it. Cruisers start off screen, on a road, and drive to you. A stuck cruiser reverses. It does not pop in beside you. Past five stars the squad stays small enough to dodge.</li><li><b>Traffic:</b> pull alongside a slow car and press <kbd>E</kbd> or <kbd>C</kbd> to steal it. The STEAL button does the same. Stealing adds a wanted star and standing bounty. The bounty stays until a bust. The car is not added to your garage, and it cannot take parts, paint, or tuning. You can race it, including a drag. At the start of any race the game asks if you want the last car you were in. Yes keeps it, and a stolen one is marked STOLEN. No uses the car you own. At a shop door, or at the counter inside, <kbd>C</kbd> robs the till instead.</li><li><b>Roles:</b> HQ (police lot) switches Neutral, Criminal, or Police on a cooldown. Criminals take heists at the bar. Police ram or box suspects for bounties. If a cop picks up a wanted star, they become Neutral immediately and cannot change roles for 5 minutes. The timer shows on screen and is stored in the save. Each role has its own rank. A criminal is a known face: shops, repairs, fuel, and the hospital cost 12% more, sales pay less, and heat falls slower. Kingpin waives that street tax.</li><li><b>On sight:</b> with no wanted stars, an officer outside the police station still shoots a criminal in view. The shot flashes, then fires at the spot you were standing. Move more than a step, take the far lane, break the line with a building, or pull into the station lot. The lot is a ceasefire so you can still change roles. The shot spends health. It does not add a star. Driving off refills that health.</li><li><b>Shops:</b> Walk into the parts shop, Quick Mart, the dealership, or Nitro Fuel. On foot, the lot is the door. Inside, walk up to the counter. <kbd>E</kbd> talks to the clerk. <kbd>C</kbd> at that counter, or at the door, takes the cash. Rob the register does the same. Away from a till, <kbd>C</kbd> still steals a car. Wanted stars go up, and the bounty under them goes up with the heat. The till stays empty for about a minute. <kbd>Q</kbd> gets you back in the car.</li><li><b>On foot:</b> tap <kbd>Q</kbd> when you are almost stopped to step out. Officers get out if you sit still, wreck, or walk. Their swing and their shot both flash before they land, and they cannot reach you from down the block. One star is a single officer. Armed crew only show up at three stars. Get back in the car and drive to drop them. At 0 health you are Busted (garage) or Wasted (hospital). The bill is capped and dying never pays you.</li><li><b>Camera:</b> <kbd>V</kbd>, the Cam button, or the touch CAM button cycles chase, cockpit, a front camera (the road ahead stays in the corner), and top-down. A label such as Camera: Chase [V] shows the one you just picked. Top-down follows you from above and stays above the roofs. Settings chooses north-up or car-up. Left and right steer the car, including on foot and on the touch pad. The front camera looks back at you, so the car can move the other way on the screen. <kbd>F3</kbd> switches to the 2D city without starting a second career.</li><li><b>Wreck:</b> at 100% damage the car explodes. In a race you restart at the last checkpoint and take 8 seconds (5 on the strip). In the city a tow truck drops you at the garage for $260, or a bit more if you are a known criminal. Blowing up during a chase counts as a bust.</li><li><b>Race:</b> gas, brake, steer. <kbd>Space</kbd> drifts and fills nitro. <kbd>Shift</kbd> or <kbd>N</kbd> fires it. Walls hurt. Grass is slow.</li><li><b>Drag:</b> walk into the drag building or the tower and talk to the starter. A drag is a normal race on a flat straight: the same physics, the same HUD, and one opponent. Quarter mile is about 400 m. Half mile is about 800 m. The finish line is the far end. Gas, brake, and steer are unchanged. You can take a stolen car if you say yes at the start. Stolen cars cannot take parts, paint, or tuning.</li><li><b>Custom:</b> the Race Office opens a custom grid and the track editor. Export a share code to pass a layout around.</li><li><b>Streets:</b> parked rivals with a gold glow will race you point to point. Police players can intercept them instead.</li><li>Top 3 in all three league races unlocks the boss. Beat the boss to get promoted.</li><li><kbd>F</kbd> photo mode. <kbd>R</kbd> resets you to the road if you get stuck. <kbd>Esc</kbd> pauses.</li></ul>" });
   }
   function showGarage(tab) {
     const v = {
@@ -33882,27 +33917,36 @@ void main() {
       preview: "car",
       render: () => {
         const s = career.state, car = career.currentCar(), def = career.carDef(car.id), st = career.carStats(car);
-        let h = tabs(v, [["look", "Look"], ["car", "Car"], ["parts", "Parts"], ["tune", "Tune"], ["cars", "Cars"], ["driver", "Driver"]]);
+        const hot = stolenRide();
+        let h = stolenNote() + tabs(v, [["look", "Look"], ["car", "Car"], ["parts", "Parts"], ["tune", "Tune"], ["cars", "Cars"], ["driver", "Driver"]]);
         if (v.tab === "look") {
-          const col = career.carColor(car);
-          h += "<p>Paint, rims and decals update on the car behind this panel.</p>";
-          h += '<div class="swatches">' + RL.PAINT_COLORS.map((c) => '<button data-act="color" data-arg="' + c + '" class="swatch big" style="background:' + c + '"></button>').join("") + '<input type="color" data-color="1" value="' + col + '"></div>';
-          h += '<div class="row"><button data-act="rim" data-arg="0">Rims \xB7 Stock</button><button data-act="rim" data-arg="1">Sport</button><button data-act="rim" data-arg="2">Deep dish</button></div>';
-          h += '<div class="row"><button data-act="decal" data-arg="none">No decal</button><button data-act="decal" data-arg="stripes">Stripes</button><button data-act="decal" data-arg="number">Number</button><button data-act="decal" data-arg="lightning">Bolt</button><button data-act="decal" data-arg="chevron">Chevron</button></div>';
-          h += '<div class="row"><button data-act="glow">' + (car.style.underglow ? "Underglow ON" : "Underglow OFF") + "</button></div>";
-          h += '<p class="small">Current rims ' + (car.style.rims || 0) + " \xB7 decal " + (car.style.decal || "none") + "</p>";
+          if (hot) {
+            h += '<p style="color:#fff">Paint stays as you found it.</p>';
+          } else {
+            const col = career.carColor(car);
+            h += "<p>Paint, rims and decals update on the car behind this panel.</p>";
+            h += '<div class="swatches">' + RL.PAINT_COLORS.map((c) => '<button data-act="color" data-arg="' + c + '" class="swatch big" style="background:' + c + '"></button>').join("") + '<input type="color" data-color="1" value="' + col + '"></div>';
+            h += '<div class="row"><button data-act="rim" data-arg="0">Rims \xB7 Stock</button><button data-act="rim" data-arg="1">Sport</button><button data-act="rim" data-arg="2">Deep dish</button></div>';
+            h += '<div class="row"><button data-act="decal" data-arg="none">No decal</button><button data-act="decal" data-arg="stripes">Stripes</button><button data-act="decal" data-arg="number">Number</button><button data-act="decal" data-arg="lightning">Bolt</button><button data-act="decal" data-arg="chevron">Chevron</button></div>';
+            h += '<div class="row"><button data-act="glow">' + (car.style.underglow ? "Underglow ON" : "Underglow OFF") + "</button></div>";
+            h += '<p class="small">Current rims ' + (car.style.rims || 0) + " \xB7 decal " + (car.style.decal || "none") + "</p>";
+          }
         } else if (v.tab === "car") {
           const cost = career.repairCost(car);
           h += '<div class="carhead"><i class="swatch big" style="background:' + career.carColor(car) + '"></i><div><h3>' + def.name + '</h3><div class="small">' + def.cls + " \xB7 damage " + Math.round(car.damage) + "%</div></div></div>" + statBars(st, def.s) + '<div class="row"><button class="primary" data-act="repair" ' + (car.damage < 1 || s.money < cost ? "disabled" : "") + ">Repair (" + fmtMoney(cost) + ")</button></div>";
         } else if (v.tab === "parts") {
-          h += RL.SLOT_ORDER.map((slot) => {
+          if (hot) h += '<p style="color:#fff">Parts stay in your garage. They do not bolt onto a stolen car.</p>';
+          else h += RL.SLOT_ORDER.map((slot) => {
             const cur = car.parts[slot] && career.findPart(car.parts[slot]);
             const avail = s.inventory.filter((p) => p.slot === slot && !career.isEquipped(p.uid));
             return '<div class="slot"><h4>' + RL.SLOTS[slot].icon + " " + RL.SLOTS[slot].name + "</h4>" + (cur ? partCard(cur, '<button data-act="unequip" data-arg="' + slot + '">Remove</button>') : '<div class="small dim">Stock</div>') + avail.map((p) => partCard(p, '<button data-act="equip" data-arg="' + p.uid + '">Equip</button>')).join("") + "</div>";
           }).join("");
         } else if (v.tab === "tune") {
-          const t = car.tune;
-          h += '<p>Tuning trades one stat for another.</p><div class="tune"><span>Gear ratio</span><button data-act="tune" data-arg="gear,-1">Accel</button><b>' + t.gear + '</b><button data-act="tune" data-arg="gear,1">Speed</button></div><div class="tune"><span>Downforce</span><button data-act="tune" data-arg="aero,-1">Speed</button><b>' + t.aero + '</b><button data-act="tune" data-arg="aero,1">Grip</button></div>' + statBars(st, def.s);
+          if (hot) h += '<p style="color:#fff">Tuning is for a car you own.</p>';
+          else {
+            const t = car.tune;
+            h += '<p>Tuning trades one stat for another.</p><div class="tune"><span>Gear ratio</span><button data-act="tune" data-arg="gear,-1">Accel</button><b>' + t.gear + '</b><button data-act="tune" data-arg="gear,1">Speed</button></div><div class="tune"><span>Downforce</span><button data-act="tune" data-arg="aero,-1">Speed</button><b>' + t.aero + '</b><button data-act="tune" data-arg="aero,1">Grip</button></div>' + statBars(st, def.s);
+          }
         } else if (v.tab === "cars") {
           h += s.cars.map((c) => {
             const d = career.carDef(c.id);
@@ -33917,18 +33961,22 @@ void main() {
           v.preview = "car";
         },
         color: (c) => {
+          if (blockStolen()) return;
           career.currentCar().style.color = c;
           needSave();
         },
         rim: (n) => {
+          if (blockStolen()) return;
           career.currentCar().style.rims = Number(n);
           needSave();
         },
         decal: (d) => {
+          if (blockStolen()) return;
           career.currentCar().style.decal = d;
           needSave();
         },
         glow: () => {
+          if (blockStolen()) return;
           const s = career.currentCar().style;
           s.underglow = !s.underglow;
           needSave();
@@ -33944,6 +33992,7 @@ void main() {
           }
         },
         equip: (id) => {
+          if (blockStolen()) return;
           const p = career.findPart(id), car = career.currentCar();
           car.parts[p.slot] = id;
           if (p.slot === "paint" && p.color) car.style.color = p.color;
@@ -33951,10 +34000,12 @@ void main() {
           needSave();
         },
         unequip: (slot) => {
+          if (blockStolen()) return;
           delete career.currentCar().parts[slot];
           needSave();
         },
         tune: (a) => {
+          if (blockStolen()) return;
           const [k, d] = a.split(",");
           const t = career.currentCar().tune;
           t[k] = Math.max(-3, Math.min(3, t[k] + Number(d)));
@@ -34008,6 +34059,7 @@ void main() {
       return sorted.map((p) => partCard(p, career.isEquipped(p.uid) ? "" : '<button data-act="equip" data-arg="' + p.uid + '">Equip</button><button data-act="sell" data-arg="' + p.uid + '">Sell ' + fmtMoney(career.sellPrice(p)) + "</button>")).join("");
     }, acts: {
       equip: (id) => {
+        if (blockStolen()) return;
         const p = career.findPart(id);
         career.currentCar().parts[p.slot] = id;
         if (p.color) career.currentCar().style.color = p.color;
@@ -34072,7 +34124,7 @@ void main() {
     const placeId = place && isShop(place) ? place : null;
     const v = { title: tab === "cars" ? "Dealership" : "Shop", tab: tab || "parts", render: () => {
       const s = career.state, pm = career.priceMult(), tax = career.crimeTax();
-      let h = (placeId ? card(placeId) : "") + tabs(v, [["cars", "Cars"], ["parts", "Parts"], ["sell", "Sell"]]) + '<p class="rob-line">Cash <b class="hl">' + fmtMoney(s.money) + "</b>" + (pm < 0.999 ? " \xB7 " + Math.round((1 - pm) * 100) + "% off" : "") + (tax > 1 ? " \xB7 street tax 12%" : "") + "</p>";
+      let h = stolenNote("Parts you buy wait for a car you own.") + (placeId ? card(placeId) : "") + tabs(v, [["cars", "Cars"], ["parts", "Parts"], ["sell", "Sell"]]) + '<p class="rob-line">Cash <b class="hl">' + fmtMoney(s.money) + "</b>" + (pm < 0.999 ? " \xB7 " + Math.round((1 - pm) * 100) + "% off" : "") + (tax > 1 ? " \xB7 street tax 12%" : "") + "</p>";
       if (v.tab === "cars") {
         h += RL.CARS.map((c) => {
           const owned = s.cars.some((x) => x.id === c.id);
@@ -34150,7 +34202,7 @@ void main() {
       leagues.push(["drag", "Drag"]);
       let h = '<div class="row"><button data-act="custom">Custom Race</button><button data-act="editor">Track Editor</button></div>' + tabs(v, leagues);
       if (v.tab === "drag") {
-        h += "<p>Quarter mile on the east strip. Staged launch, five gears, perfect-shift bonus. The rival scales with your league.</p>";
+        h += "<p>A drag is a normal race on a flat straight. Quarter mile is about 400 m. You can take the last car you were in, including a stolen one.</p>";
         h += '<div class="row"><button class="primary" data-act="drag">Stage a race</button></div>';
         if (s.records && s.records.drag) h += '<p class="small">Best ET ' + fmtTime(s.records.drag) + "</p>";
         return h;
@@ -35252,7 +35304,7 @@ void main() {
         const car = career.currentCar();
         if (hub.player && car && !hub.player.stolen) hub.player.damage = car.damage;
       };
-      hub.onDrag = () => this.startDrag();
+      hub.onDrag = () => this.startDrag({ ask: true });
       hub.onStreetFinish = (res) => this._finished(res);
       race.onFinish = (res) => this._finished(res);
       drag.onFinish = (res) => this._finished(res);
@@ -35351,8 +35403,8 @@ void main() {
         this.toHub();
       };
       actions.editor = (def) => this.openEditor(def);
-      actions.startRace = (cfg) => this.startRace(cfg);
-      actions.startDrag = () => this.startDrag();
+      actions.startRace = (cfg) => this.offerRace(cfg);
+      actions.startDrag = () => this.startDrag({ ask: true });
       actions.photo = () => this.togglePhoto();
       actions.photoUi = (cmd, arg) => this._photoUi(cmd, arg);
       actions.quality = () => {
@@ -35374,6 +35426,10 @@ void main() {
       };
       actions.paint = (color) => {
         if (!career.state) return;
+        if (hub.player && hub.player.stolen) {
+          ui.toast("Stolen cars can't be upgraded, painted, or tuned.", "#fff");
+          return;
+        }
         career.currentCar().style.color = color;
         career.save();
         if (hub.player) hub.refreshCar();
@@ -35400,6 +35456,34 @@ void main() {
         race.paused = false;
         drag.paused = false;
       };
+    },
+    lastCar() {
+      const p = hub.player;
+      if (p && p.stolen && p.stolen.name) return { name: p.stolen.name, stolen: true };
+      const car = career.currentCar();
+      const def = car && career.carDef(car.id);
+      return { name: def ? def.name : "Your car", stolen: false };
+    },
+    offerRace(cfg, thenStart) {
+      if (!cfg || cfg.carChosen || cfg.kind === "testdrive" || cfg.kind === "escape" || cfg.multiplayer) {
+        if (thenStart) thenStart(cfg);
+        else this.startRace(cfg);
+        return;
+      }
+      const ride = this.lastCar();
+      const label = ride.name + (ride.stolen ? " \xB7 STOLEN" : "");
+      const go = (useLast) => {
+        cfg.useLast = !!useLast;
+        cfg.carChosen = true;
+        ui.closeAll();
+        if (thenStart) thenStart(cfg);
+        else this.startRace(cfg);
+      };
+      ui.open({
+        title: "Which car?",
+        render: () => '<p style="color:#fff">Use the last car you were in?</p><p style="color:#fff"><b>' + String(label).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]) + '</b></p><div class="row"><button class="primary" data-act="yes">Yes</button><button data-act="no">No</button></div>',
+        acts: { yes: () => go(true), no: () => go(false) }
+      });
     },
     startRace(cfg) {
       if (career.state && career.state.impound > 0 && !cfg.ignoreImpound) {
@@ -35439,22 +35523,13 @@ void main() {
       audio.startEngine();
       this.weather = cfg.weather || "clear";
     },
-    startDrag() {
+    startDrag(opts) {
       const prefs = career.state && career.state.dragPrefs || {};
       const half = !!prefs.half;
       const league = career.state && career.state.league || 1;
       const table = { 1: 200, 2: 450, 3: 900, 4: 1600 };
       const stake = prefs.stake === false ? 0 : table[league] || 200;
-      if (stake && career.state && career.state.money < stake) {
-        ui.toast("Not enough cash for that stake");
-        return;
-      }
-      if (stake && career.state) {
-        career.addMoney(-stake);
-        career.state.dragStake = { amount: stake, settled: false };
-        career.save();
-      }
-      this.startRace({
+      const cfg = {
         kind: "drag",
         track: half ? "half" : "quarter",
         laps: 1,
@@ -35466,17 +35541,37 @@ void main() {
         damage: true,
         nitro: true,
         traffic: false,
-        collisions: true,
-        stake
-      });
+        collisions: true
+      };
+      const go = (chosen) => {
+        const raceCfg = chosen || cfg;
+        if (stake && career.state && career.state.money < stake) {
+          ui.toast("Not enough cash for that stake");
+          return;
+        }
+        if (stake && career.state) {
+          career.addMoney(-stake);
+          career.state.dragStake = { amount: stake, settled: false };
+          career.save();
+        }
+        raceCfg.stake = stake;
+        this.startRace(raceCfg);
+      };
+      if (opts && opts.ask) this.offerRace(cfg, go);
+      else go(cfg);
     },
     _again(cfg) {
-      if (cfg.kind === "drag") this.startDrag();
-      else if (cfg.kind === "street") hub.startChallenge(cfg.streetId);
-      else this.startRace(cfg);
+      const c = Object.assign({}, cfg);
+      delete c.carChosen;
+      if (c.kind === "drag") this.startDrag({ ask: true });
+      else if (c.kind === "street") hub.startChallenge(c.streetId);
+      else this.offerRace(c);
     },
     _finished(res) {
       audio.stopEngine();
+      if (res.cfg && res.cfg.stolenRide && hub.player && hub.player.stolen) {
+        hub.player.damage = Math.max(0, Math.min(100, res.damageEnd || 0));
+      }
       const sum = career.finishEvent(res);
       if (res.cfg.kind === "boss" && res.position === 1) ui.queueStory("boss" + res.cfg.league);
       ui.showResults(sum);
@@ -35591,11 +35686,11 @@ void main() {
         gears: () => ui.showGarage("tune"),
         drag: () => {
           interior.leave({ silent: true });
-          this.startDrag();
+          this.startDrag({ ask: true });
         },
         booth: () => {
           interior.leave({ silent: true });
-          this.startDrag();
+          this.startDrag({ ask: true });
         },
         street: () => {
           interior.leave();

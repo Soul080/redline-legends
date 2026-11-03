@@ -13,6 +13,7 @@ import { buildCar, updateCarVisual, carClass, disposeCar } from './cars.js';
 import { gfx } from './renderer.js';
 import { clamp, rand, pick } from './util.js';
 import { wrecks } from './wrecks.js';
+import { hub } from './hub.js';
 
 export const race = {
   active: false,
@@ -83,7 +84,16 @@ export const race = {
     let playerStats = career.carStats(pc);
     let playerStyle = pc.style;
     let playerColor = career.carColor(pc);
-    if (cfg.carClass && cfg.carClass !== 'current') {
+    let playerDamage = pc.damage || 0;
+    const stolen = cfg.useLast && hub.player && hub.player.stolen && (hub.player.def || career.carDef(hub.player.stolen.id));
+    if (stolen) {
+      cfg.stolenRide = true;
+      playerDef = hub.player.def || stolen;
+      playerStats = Object.assign({}, playerDef.s);
+      playerStyle = { color: playerDef.color, rims: 1, decal: 'none', underglow: false };
+      playerColor = playerDef.color;
+      playerDamage = hub.player.damage || 0;
+    } else if (cfg.carClass && cfg.carClass !== 'current') {
       playerDef = RL.CARS.find((c) => c.cls === cfg.carClass) || playerDef;
       playerStats = Object.assign({}, playerDef.s);
       playerStyle = { color: playerDef.color, rims: 1, decal: 'none', underglow: false, siren: S.role === 'police' };
@@ -91,7 +101,7 @@ export const race = {
     }
     const player = this._make({
       isPlayer: true, name: S.name, color: playerColor,
-      p: physFromStats(playerStats), damage: cfg.damage === false ? 0 : pc.damage, startDamage: pc.damage,
+      p: physFromStats(playerStats), damage: cfg.damage === false ? 0 : playerDamage, startDamage: playerDamage,
       style: playerStyle, def: playerDef, lights: true
     });
     if (career.hasPerk('double_tank')) player.nitro = 100;

@@ -224,6 +224,15 @@
   });
 
   function showCustoms() {
+    if (RL.Hub && RL.Hub.player && RL.Hub.player.joyride) {
+      const name = RL.Hub.player.joyride.name || 'This car';
+      RL.UI.open({
+        title: 'Paint',
+        render: () => '<p class="stolen-note" style="color:#fff;background:#0c0816;border:1px solid #fff;padding:8px 10px">Stolen cars can\'t be upgraded, painted, or tuned. <b style="color:#fff">' + name + '</b> stays as you found it.</p><div class="row"><button data-act="back">Close</button></div>',
+        acts: {}
+      });
+      return;
+    }
     const car = RL.Game.currentCar();
     if (!car.look) car.look = { paint: null, decal: 'none', decalColor: '#ffffff' };
     RL.UI.open({
@@ -295,7 +304,7 @@
   const origStart = RL.Game.startRace;
   RL.Game.startRace = function (cfg) {
     if (RL.Hub && RL.Hub.player) RL.Hub.player.siren = false;
-    if (RL.Drive && RL.Drive.dropJoyride) RL.Drive.dropJoyride({ quiet: true });
+    if (!(cfg && cfg.useLast) && RL.Drive && RL.Drive.dropJoyride) RL.Drive.dropJoyride({ quiet: true });
     if (RL.Modes && RL.Modes.claim(cfg)) return;
     return origStart.call(this, cfg);
   };

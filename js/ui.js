@@ -61,6 +61,13 @@ RL.UI = (function () {
       return;
     }
     if (stack.length) {
+      if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+        e.preventDefault();
+        const focused = document.activeElement;
+        const hit = focused && panel.contains(focused) && focused.getAttribute && focused.getAttribute('data-act') ? focused : panel.querySelector('.primary:not([disabled])');
+        if (hit) hit.click();
+        return;
+      }
       const nav = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1, KeyS: 1, KeyD: 1, KeyW: -1, KeyA: -1, Tab: e.shiftKey ? -1 : 1 }[e.code];
       if (nav && !(document.activeElement && document.activeElement.type === 'range' && /Left|Right|KeyA|KeyD/.test(e.code))) {
         e.preventDefault();
@@ -180,14 +187,17 @@ RL.UI = (function () {
   function showGarage(tab) {
     const v = { title: '🔧 Garage', tab: tab || 'car', render: () => {
       const s = S(), car = G().currentCar(), def = G().carDef(car.id), st = G().carStats(car);
-      let h = tabs(v, [['car', 'Car'], ['parts', 'Parts'], ['tune', 'Tuning'], ['cars', 'My Cars'], ['driver', 'Driver']]);
+      const stolen = RL.Hub && RL.Hub.player && RL.Hub.player.joyride;
+      const lock = stolen ? '<p class="stolen-note" style="color:#fff;background:#0c0816;border:1px solid #fff;padding:8px 10px">Stolen cars can\'t be upgraded, painted, or tuned. <b style="color:#fff">' + stolen.name + '</b> stays as you found it.</p>' : '';
+      let h = lock + tabs(v, [['car', 'Car'], ['parts', 'Parts'], ['tune', 'Tuning'], ['cars', 'My Cars'], ['driver', 'Driver']]);
       if (v.tab === 'car') {
         const cost = G().repairCost(car);
         h += '<div class="carhead"><span class="carchip" style="background:' + G().carColor(car) + '"></span><div><h3>' + def.name + '</h3><div class="small">' + def.cls + ' · damage ' + Math.round(car.damage) + '% (−' + Math.round(car.damage * 0.25) + '% top speed)</div></div></div>' +
           statBars(st, def.s) + '<div class="row"><button class="primary" data-act="repair" ' + (car.damage < 1 || s.money < cost ? 'disabled' : '') + '>Repair (' + RL.fmtMoney(cost) + ')</button>' +
           '<button data-act="tab" data-arg="parts">Upgrade parts ▸</button><button data-act="skills">Skill tree ▸</button></div>';
       } else if (v.tab === 'parts') {
-        h += RL.SLOT_ORDER.map((slot) => {
+        if (stolen) h += '<p style="color:#fff">Parts stay in your garage. They do not bolt onto a stolen car.</p>';
+        else h += RL.SLOT_ORDER.map((slot) => {
           const cur = car.parts[slot] && G().findPart(car.parts[slot]);
           const avail = s.inventory.filter((p) => p.slot === slot && !G().isEquipped(p.uid));
           return '<div class="slot"><h4>' + RL.SLOTS[slot].icon + ' ' + RL.SLOTS[slot].name + '</h4>' +
@@ -195,6 +205,8 @@ RL.UI = (function () {
             avail.map((p) => partCard(p, '<button data-act="equip" data-arg="' + p.uid + '">Equip</button>')).join('') + '</div>';
         }).join('') + '<p class="small dim">Get more parts as race rewards or in the Shop.</p>';
       } else if (v.tab === 'tune') {
+        if (stolen) h += '<p style="color:#fff">Tuning is for a car you own.</p>';
+        else {
         const t = car.tune;
         h += '<p>Tuning trades one stat for another. Changes apply instantly.</p>' +
           '<div class="tune"><span>Gear Ratio</span><button data-act="tune" data-arg="gear,-1">◀ Accel</button><b>' + t.gear + '</b><button data-act="tune" data-arg="gear,1">Speed ▶</button></div>' +
@@ -202,6 +214,7 @@ RL.UI = (function () {
           '<div class="tune"><span>Downforce</span><button data-act="tune" data-arg="aero,-1">◀ Speed</button><b>' + t.aero + '</b><button data-act="tune" data-arg="aero,1">Grip ▶</button></div>' +
           '<div class="small dim">+1 = +2 Grip, −1.5 Top Speed (great for rain & snow)</div>' +
           (RL.Drag ? '<div class="row"><button data-act="draggears">Drag gear ratios</button></div>' : '') + statBars(st, def.s);
+        }
       } else if (v.tab === 'cars') {
         h += s.cars.map((c) => { const d = G().carDef(c.id); return '<div class="card"><div><span class="carchip" style="background:' + G().carColor(c) + '"></span> <b>' + d.name + '</b> <span class="small">' + d.cls + ' · dmg ' + Math.round(c.damage) + '%</span></div><div class="btns">' +
           (c.uid === s.currentCar ? '<span class="eq">DRIVING</span>' : '<button data-act="drive" data-arg="' + c.uid + '">Drive</button>') + '</div></div>'; }).join('');
@@ -215,9 +228,18 @@ RL.UI = (function () {
         else if (paid === 0) needSave();
         else RL.Audio.play('error');
       },
-      equip: (uid) => { if (!G().equipPart(uid)) { RL.Audio.play('error'); return; } RL.Audio.play('confirm'); needSave(); },
-      unequip: (slot) => { delete G().currentCar().parts[slot]; needSave(); },
-      tune: (a) => { const [k, d] = a.split(','), t = G().currentCar().tune; t[k] = RL.clamp(t[k] + Number(d), -3, 3); needSave(); },
+      equip: (uid) => {
+        if (RL.Hub && RL.Hub.player && RL.Hub.player.joyride) { toast('Stolen cars can\'t be upgraded, painted, or tuned.', '#fff'); return; }
+        if (!G().equipPart(uid)) { RL.Audio.play('error'); return; } RL.Audio.play('confirm'); needSave();
+      },
+      unequip: (slot) => {
+        if (RL.Hub && RL.Hub.player && RL.Hub.player.joyride) { toast('Stolen cars can\'t be upgraded, painted, or tuned.', '#fff'); return; }
+        delete G().currentCar().parts[slot]; needSave();
+      },
+      tune: (a) => {
+        if (RL.Hub && RL.Hub.player && RL.Hub.player.joyride) { toast('Stolen cars can\'t be upgraded, painted, or tuned.', '#fff'); return; }
+        const [k, d] = a.split(','), t = G().currentCar().tune; t[k] = RL.clamp(t[k] + Number(d), -3, 3); needSave();
+      },
       draggears: () => { if (RL.Drag) RL.Drag.showGears(); },
       drive: (uid) => { S().currentCar = uid; needSave(); toast('Switched car'); },
       stat: (k) => { if (G().raiseStat(k)) RL.Audio.play('confirm'); else RL.Audio.play('error'); }
@@ -271,7 +293,9 @@ RL.UI = (function () {
     const v = { title: '🛒 Shop', tab: shopTab, render: () => {
       const s = S(), pm = G().priceMult();
       const tax = (RL.Roles && RL.Roles.buyMod && RL.Roles.buyMod() > 1) ? ' · street tax 12%' : '';
-      let h = (placeId && RL.Jobs ? RL.Jobs.card(placeId) : '') + tabs(v, [['cars', 'Cars'], ['parts', 'Parts'], ['sell', 'Sell']]) + '<p class="rob-line">Cash: <b class="hl">' + RL.fmtMoney(s.money) + '</b>' + (pm < 1 ? ' · discount ' + Math.round((1 - pm) * 100) + '% (respect/perks)' : '') + tax + '</p>';
+      const stolen = RL.Hub && RL.Hub.player && RL.Hub.player.joyride;
+      const lock = stolen ? '<p class="stolen-note" style="color:#fff;background:#0c0816;border:1px solid #fff;padding:8px 10px">Stolen cars can\'t be upgraded, painted, or tuned. Parts you buy wait for a car you own.</p>' : '';
+      let h = lock + (placeId && RL.Jobs ? RL.Jobs.card(placeId) : '') + tabs(v, [['cars', 'Cars'], ['parts', 'Parts'], ['sell', 'Sell']]) + '<p class="rob-line">Cash: <b class="hl">' + RL.fmtMoney(s.money) + '</b>' + (pm < 1 ? ' · discount ' + Math.round((1 - pm) * 100) + '% (respect/perks)' : '') + tax + '</p>';
       if (v.tab === 'cars') {
         h += RL.CARS.map((c) => {
           const owned = s.cars.some((x) => x.id === c.id), locked = c.league > s.league, price = c.price > 0 ? G().buyPrice(c.price) : 0;
@@ -366,16 +390,16 @@ RL.UI = (function () {
       servers: () => RL.Servers && RL.Servers.open(),
       nexttrack: () => { v.sideTrack++; },
       race: (a) => { const [n, i] = a.split(',').map(Number), r = G().leagueData(n).races[i], c = conds[n + '_' + i];
-        G().startRace({ kind: 'race', track: r.track, reverse: !!r.reverse, league: n, raceIndex: i, weather: c.weather, time: c.time, title: r.name }); },
+        G().offerRace({ kind: 'race', track: r.track, reverse: !!r.reverse, league: n, raceIndex: i, weather: c.weather, time: c.time, title: r.name }); },
       boss: (a) => {
         const n = Number(a), b = G().leagueData(n).boss, c = conds[n + '_boss'];
-        const go = () => G().startRace({ kind: 'boss', track: b.track, league: n, weather: c.weather, time: c.time, title: 'BOSS: ' + b.name });
+        const go = () => G().offerRace({ kind: 'boss', track: b.track, league: n, weather: c.weather, time: c.time, title: 'BOSS: ' + b.name });
         const key = 'preboss' + n;
         if (RL.STORY && RL.STORY[key] && !(S().flags && S().flags['seen_' + key])) { closeAll(); showStory(key, go); }
         else go();
       },
       side: (type) => { const tracks = sideTracks(), tk = tracks[v.sideTrack % tracks.length], c = conds['side_' + tk];
-        G().startRace({ kind: type, track: tk, league: S().league, weather: c.weather, time: c.time, title: RL.SIDE_EVENTS.find((e) => e.type === type).name }); },
+        G().offerRace({ kind: type, track: tk, league: S().league, weather: c.weather, time: c.time, title: RL.SIDE_EVENTS.find((e) => e.type === type).name }); },
       freeplay: () => RL.FreePlay && RL.FreePlay.open(),
       editor: () => { if (RL.Editor) { closeAll(); RL.Editor.open(); } },
       community: () => RL.Community && RL.Community.open()
@@ -386,7 +410,7 @@ RL.UI = (function () {
   function showTraining() {
     open({ title: '🏟 Training Track', render: () => '<p>Practice on the Training Oval. Solo, 3 laps, clear skies. Earn XP for every lap without hitting a wall, plus drift XP.</p>' +
       '<p class="small">Sessions completed: <b class="hl">' + S().totals.training + '</b></p><div class="row"><button class="primary" data-act="go">Start Practice ▶</button><button data-act="back">Leave</button></div>',
-      acts: { go: () => G().startRace({ kind: 'training', track: 'oval', league: S().league, weather: 'clear', time: 'day', title: 'Training Session' }) } });
+      acts: { go: () => G().offerRace({ kind: 'training', track: 'oval', league: S().league, weather: 'clear', time: 'day', title: 'Training Session' }) } });
   }
 
   /* ---------------- Bar & dialogue ---------------- */
@@ -691,7 +715,7 @@ RL.UI = (function () {
       return;
     }
     open({ title: '⏸ Paused', onClose: () => RL.Race.resume(), render: () => '<div class="grid2"><button class="primary" data-act="resume">▶ Resume</button><button data-act="restart">↻ Restart</button><button data-act="settings">⚙ Settings</button><button data-act="help">❓ Controls</button><button data-act="quit">⏏ Quit race (no reward)</button></div>',
-      acts: { resume: () => closeAll(), restart: () => { const cfg = Object.assign({}, RL.Race.state.cfg); closeAll(); RL.Race.stop(); G().startRace(cfg); },
+      acts: { resume: () => closeAll(), restart: () => { const cfg = Object.assign({}, RL.Race.state.cfg); delete cfg.carChosen; closeAll(); RL.Race.stop(); G().offerRace(cfg); },
         settings: showSettings, help: showHelp, quit: () => { closeAll(); RL.Race.quit(); } } });
   }
   function showResults(sum) {
@@ -721,7 +745,7 @@ RL.UI = (function () {
           if (RL.Net && RL.Net.rematch()) return;
           closeAll(); if (RL.Net) RL.Net.disconnect(); G().toHub(); return;
         }
-        const c = Object.assign({}, cfg); closeAll(); G().startRace(c);
+        const c = Object.assign({}, cfg); delete c.carChosen; closeAll(); G().offerRace(c);
       }
     } });
   }
